@@ -32,9 +32,9 @@ function find(list: ProjectMetric[], needle: string): ProjectMetric | undefined 
 function harvestDiagram(m: Metrics): HTMLElement {
   const req = find(m.harvest, "requirements-harvester");
   const dataReq = find(m.harvest, "requirements-harvester-data");
-  const reqHarvest = find(m.harvest, "requirements-harvester");
+  const reqGen = find(m.harvest, "requirements-harvester");
   const self = m.self;
-  const trio = (req?.cost ?? 0) + (dataReq?.cost ?? 0) + (reqHarvest?.cost ?? 0);
+  const trio = (req?.cost ?? 0) + (dataReq?.cost ?? 0) + (reqGen?.cost ?? 0);
 
   const node = (
     x: number,
@@ -67,7 +67,7 @@ function harvestDiagram(m: Metrics): HTMLElement {
     </defs>
 
     ${node(40, 30, 230, "requirements-harvester", fmt(req), "user")}
-    ${node(40, 150, 230, "requirements-harvester", fmt(reqHarvest), "tool")}
+    ${node(40, 150, 230, "requirements-harvester", fmt(reqGen), "tool")}
     ${node(385, 90, 240, "requirements-harvester-data", fmt(dataReq), "accent")}
 
     <!-- requirements-harvester's direct output seeds requirements-harvester-data -->
@@ -112,12 +112,10 @@ function harvestDiagram(m: Metrics): HTMLElement {
   const caption = el(
     "p",
     { class: "vz-lede" },
-    `Three projects whose names are the same two words shuffled — `,
+    `Two projects — `,
     el("code", {}, "requirements-harvester"),
     `, `,
     el("code", {}, "requirements-harvester-data"),
-    `, `,
-    el("code", {}, "requirements-harvester"),
     ` — together ${money(trio)} of estimated spend. ` +
       `requirements-harvester-data was seeded with the direct output of requirements-harvester: a project ` +
       `that builds the data to spec the project that specs it. And the whole family ` +
