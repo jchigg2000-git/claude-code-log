@@ -1,4 +1,4 @@
-import type { AppConfig, Metrics, Overview, RepoDetail, Session } from "./types.ts";
+import type { AppConfig, Journey, Metrics, Overview, RepoDetail, Session } from "./types.ts";
 
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -41,4 +41,19 @@ export function fetchMetrics(cfg: AppConfig): Promise<Metrics> {
 
 export function invalidateMetrics(): void {
   metricsCache = null;
+}
+
+// The journey scan reads the whole command history; memoize per logDir+window
+// for the page lifetime, same as metrics.
+let journeyCache: { key: string; promise: Promise<Journey> } | null = null;
+
+export function fetchJourney(cfg: AppConfig, days = 50): Promise<Journey> {
+  const key = `${cfg.logDir}::${days}`;
+  if (!journeyCache || journeyCache.key !== key) {
+    journeyCache = {
+      key,
+      promise: getJSON<Journey>(`/api/journey?${q({ logDir: cfg.logDir, days: String(days) })}`),
+    };
+  }
+  return journeyCache.promise;
 }
