@@ -1,4 +1,4 @@
-import { el } from "./dom.ts";
+import { el, relativeTime } from "./dom.ts";
 import type { JourneyEdge, JourneyNode, JourneyVisit } from "./types.ts";
 
 /** Bespoke, theme-matched visualizations. No chart library: the app is
@@ -493,9 +493,12 @@ export function forceGraph(
 
 /**
  * A deliberately dense, non-linear timeline of the window. One marker per
- * project "visit" (a contiguous run of work), placed at its time on x; the
- * thin connector threads visits in chronological order so the jumping-around
- * is the visible signal, not noise smoothed away. Colour = project.
+ * project "visit" (a contiguous run of work): x = time, y = which project
+ * (each project owns a horizontal lane, ordered top→bottom by first-seen).
+ * The thin connector threads visits in chronological order so the
+ * jumping-around is the visible signal, not noise smoothed away. Hovering a
+ * dot lights up that project's whole lane and opens a detail tooltip; click
+ * still drives the shared inspector.
  */
 export function sloppyTimeline(
   visits: JourneyVisit[],
@@ -506,8 +509,9 @@ export function sloppyTimeline(
 ): HTMLElement {
   const W = 1000;
   const H = 380;
-  const padX = 16;
-  const padTop = 24;
+  const padL = 128; // left gutter holds the project (y-axis) labels
+  const padR = 18;
+  const padTop = 26;
   const padBot = 34;
   const box = el("div", { class: "jn-timeline" });
   if (visits.length === 0) {
@@ -518,31 +522,61 @@ export function sloppyTimeline(
   const t0 = Date.parse(opts.first ?? visits[0].ts);
   const t1 = Date.parse(opts.last ?? visits[visits.length - 1].ts);
   const span = Math.max(1, t1 - t0);
-  const x = (iso: string) => padX + ((Date.parse(iso) - t0) / span) * (W - 2 * padX);
+  const x = (iso: string) => padL + ((Date.parse(iso) - t0) / span) * (W - padL - padR);
 
-  // Stable colour + band per project, in first-seen order.
+  // Stable colour + lane per project, in first-seen order. The display name
+  // is stable per project id, so capture the first one we see.
   const order: string[] = [];
-  for (const v of visits) if (!order.includes(v.project)) order.push(v.project);
-  const colorOf = (p: string) => `jn-c${order.indexOf(p) % 10}`;
+  const nameOf = new Map<string, string>();
+  for (const v of visits) {
+    if (!order.includes(v.project)) order.push(v.project);
+    if (!nameOf.has(v.project)) nameOf.set(v.project, v.name);
+  }
+  const projIdx = (p: string) => order.indexOf(p);
+  const colorOf = (p: string) => `jn-c${projIdx(p) % 10}`;
   const bandOf = (p: string) => {
-    const k = order.length > 1 ? order.indexOf(p) / (order.length - 1) : 0.5;
+    const k = order.length > 1 ? projIdx(p) / (order.length - 1) : 0.5;
     return padTop + k * (H - padTop - padBot);
   };
   // Deterministic jitter so overlapping visits stay legible and look hand-drawn.
   const jitter = (ts: string) => ((Date.parse(ts) / 1000) % 47) - 23;
 
+  const trunc = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+
   const pt = visits.map((v) => ({ vx: x(v.ts), vy: bandOf(v.project) + jitter(v.ts), v }));
 
   const thread = `M${pt.map((p) => `${p.vx.toFixed(1)} ${p.vy.toFixed(1)}`).join(" L")}`;
+
+  // Y axis: one guide line + gutter label per project lane. Thin the labels
+  // out when lanes get tight so they never collide.
+  const bandGap = order.length > 1 ? (H - padTop - padBot) / (order.length - 1) : H;
+  const labelEvery = Math.max(1, Math.ceil(12 / Math.max(1, bandGap)));
+  const lanes = order
+    .map((p, j) => {
+      const by = bandOf(p);
+      const line = `<line class="jn-band" data-proj-band="${j}" x1="${padL}" y1="${by.toFixed(
+        1,
+      )}" x2="${W - padR}" y2="${by.toFixed(1)}"/>`;
+      const show = j % labelEvery === 0 || j === 0 || j === order.length - 1;
+      const label = show
+        ? `<text class="jn-ylabel" data-proj-band="${j}" x="${padL - 10}" y="${(by + 3.5).toFixed(
+            1,
+          )}" text-anchor="end">${esc(trunc(nameOf.get(p) ?? p, 17))}</text>`
+        : "";
+      return line + label;
+    })
+    .join("");
+  const yTitle = `<text class="jn-ytitle" transform="rotate(-90 13 ${(H / 2).toFixed(
+    1,
+  )})" x="13" y="${(H / 2).toFixed(1)}" text-anchor="middle">projects · top = first seen</text>`;
 
   const maxCmd = Math.max(1, ...visits.map((v) => v.commands));
   const dots = pt
     .map((p, i) => {
       const r = clampN(2.5, 9, 2.5 + Math.sqrt(p.v.commands / maxCmd) * 8);
-      return `<circle class="jn-dot ${colorOf(p.v.project)}" data-visit="${i}"
-        cx="${p.vx.toFixed(1)}" cy="${p.vy.toFixed(1)}" r="${r.toFixed(1)}">
-        <title>${esc(p.v.name)} · ${shortDate(p.v.ts.slice(0, 10))} · ${p.v.commands} lines
-${esc(p.v.opening)}</title></circle>`;
+      return `<circle class="jn-dot ${colorOf(p.v.project)}" data-visit="${i}" data-proj="${projIdx(
+        p.v.project,
+      )}" cx="${p.vx.toFixed(1)}" cy="${p.vy.toFixed(1)}" r="${r.toFixed(1)}"/>`;
     })
     .join("");
 
@@ -553,7 +587,7 @@ ${esc(p.v.opening)}</title></circle>`;
   const labels = labelIdx
     .map((i) => {
       const p = pt[i];
-      const anchor = p.vx > W - 170 ? "end" : p.vx < 130 ? "start" : "middle";
+      const anchor = p.vx > W - 170 ? "end" : p.vx < padL + 100 ? "start" : "middle";
       return `<text class="jn-tlabel" x="${p.vx.toFixed(1)}" y="${(p.vy - 11).toFixed(
         1,
       )}" text-anchor="${anchor}">${esc(p.v.name)}</text>`;
@@ -563,7 +597,7 @@ ${esc(p.v.opening)}</title></circle>`;
   // Sparse date axis.
   const ticks = 6;
   const axis = Array.from({ length: ticks }, (_, k) => {
-    const tx = padX + (k / (ticks - 1)) * (W - 2 * padX);
+    const tx = padL + (k / (ticks - 1)) * (W - padL - padR);
     const iso = new Date(t0 + (k / (ticks - 1)) * span).toISOString().slice(0, 10);
     const anchor = k === 0 ? "start" : k === ticks - 1 ? "end" : "middle";
     return `<line class="jn-axisln" x1="${tx.toFixed(1)}" y1="${padTop - 8}" x2="${tx.toFixed(
@@ -575,17 +609,71 @@ ${esc(p.v.opening)}</title></circle>`;
   }).join("");
 
   box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="vz-svg jn-tl-svg" role="img"
-      aria-label="Dense non-linear timeline of project visits across the window.">
+      aria-label="Non-linear timeline of project visits: x is time, y is which project (lanes ordered top to bottom by first seen).">
     ${axis}
+    ${lanes}${yTitle}
     <path class="jn-thread" d="${thread}"/>
     ${dots}${labels}
   </svg>`;
 
-  if (opts.onPick) {
-    const pick = opts.onPick;
-    box.querySelectorAll<SVGElement>("[data-visit]").forEach((c) => {
-      c.addEventListener("click", () => pick(visits[Number(c.dataset.visit)]));
+  // --- Interactivity: hover a dot → light its whole project lane + tooltip.
+  const tip = el("div", { class: "jn-tip" });
+  tip.hidden = true;
+  box.append(tip);
+
+  const svg = box.querySelector<SVGSVGElement>("svg");
+  const dotEls = [...box.querySelectorAll<SVGCircleElement>("[data-visit]")];
+  const bandEls = [...box.querySelectorAll<SVGElement>("[data-proj-band]")];
+
+  const focus = (c: SVGCircleElement) => {
+    const pj = c.dataset.proj;
+    box.classList.add("jn-focusing");
+    for (const d of dotEls) d.classList.toggle("jn-lit", d.dataset.proj === pj);
+    c.classList.add("jn-hot");
+    for (const b of bandEls) b.classList.toggle("jn-lit", b.dataset.projBand === pj);
+  };
+  const blur = () => {
+    box.classList.remove("jn-focusing");
+    for (const d of dotEls) d.classList.remove("jn-lit", "jn-hot");
+    for (const b of bandEls) b.classList.remove("jn-lit");
+    tip.hidden = true;
+  };
+
+  const placeTip = (ev: MouseEvent) => {
+    const r = box.getBoundingClientRect();
+    let tx = ev.clientX - r.left + 16;
+    let ty = ev.clientY - r.top + 16;
+    if (tx + tip.offsetWidth > r.width - 6) tx = ev.clientX - r.left - tip.offsetWidth - 14;
+    if (ty + tip.offsetHeight > r.height - 6) ty = r.height - tip.offsetHeight - 6;
+    tip.style.left = `${Math.max(6, tx)}px`;
+    tip.style.top = `${Math.max(6, ty)}px`;
+  };
+  const showTip = (v: JourneyVisit, ev: MouseEvent) => {
+    tip.innerHTML =
+      `<div class="jn-tip-h">${esc(v.name)}</div>` +
+      `<div class="jn-tip-m">${esc(shortDate(v.ts.slice(0, 10)))} · ${esc(
+        relativeTime(v.ts),
+      )} · ${v.commands} line${v.commands === 1 ? "" : "s"}</div>` +
+      `<div class="jn-tip-q">${esc(trunc(v.opening || "—", 160))}</div>`;
+    tip.hidden = false;
+    placeTip(ev);
+  };
+
+  for (const c of dotEls) {
+    const v = visits[Number(c.dataset.visit)];
+    c.addEventListener("mouseenter", (ev) => {
+      focus(c);
+      showTip(v, ev);
     });
+    c.addEventListener("mousemove", (ev) => {
+      if (!tip.hidden) placeTip(ev);
+    });
+    if (opts.onPick) {
+      const pick = opts.onPick;
+      c.addEventListener("click", () => pick(v));
+    }
   }
+  svg?.addEventListener("mouseleave", blur);
+
   return box;
 }
