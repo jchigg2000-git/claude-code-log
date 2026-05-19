@@ -509,14 +509,70 @@ a.vz-bar-row:hover .vz-bar-label { color: var(--accent); }
 .jn-node:hover .jn-nlabel { fill: var(--text); }
 
 /* Sloppy timeline */
+.jn-timeline { position: relative; }
 .jn-thread { fill: none; stroke: var(--border); stroke-width: 1; opacity: 0.55; }
-.jn-dot { cursor: pointer; stroke: var(--bg); stroke-width: 1; transition: stroke 0.15s; }
-.jn-dot:hover { stroke: var(--text); }
+.jn-dot {
+  cursor: pointer;
+  stroke: var(--bg);
+  stroke-width: 1;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: stroke 0.15s, opacity 0.15s, transform 0.12s;
+}
+/* Y axis: project lanes + gutter labels + rotated axis title */
+.jn-band { stroke: var(--border); stroke-width: 1; stroke-dasharray: 1 6; opacity: 0.35; }
+.jn-band.jn-lit { opacity: 0.85; stroke-dasharray: none; }
+.jn-ylabel {
+  fill: var(--muted);
+  font: 10px ui-monospace, monospace;
+  pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--panel);
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+.jn-ylabel.jn-lit { fill: var(--text); }
+.jn-ytitle {
+  fill: var(--muted);
+  font: 600 10px ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  pointer-events: none;
+  opacity: 0.7;
+}
+/* Hover focus: spotlight the hovered visit's whole project lane */
+.jn-timeline.jn-focusing .jn-dot { opacity: 0.16; }
+.jn-dot.jn-lit { opacity: 1; }
+.jn-dot.jn-hot { stroke: var(--text); transform: scale(1.7); }
 .jn-axisln { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.45; }
 .jn-tlabel {
   fill: var(--text);
   font: 600 11px ui-sans-serif, system-ui, sans-serif;
   pointer-events: none;
+}
+.jn-timeline.jn-focusing .jn-tlabel { opacity: 0.2; }
+/* Cursor-following tooltip */
+.jn-tip {
+  position: absolute;
+  z-index: 5;
+  max-width: 320px;
+  pointer-events: none;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 11px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.28);
+}
+.jn-tip[hidden] { display: none; }
+.jn-tip-h { font: 700 0.84rem ui-monospace, monospace; color: var(--text); overflow-wrap: anywhere; }
+.jn-tip-m { font-size: 0.72rem; color: var(--muted); margin: 3px 0 6px; }
+.jn-tip-q {
+  font: 0.76rem ui-monospace, monospace;
+  color: var(--text);
+  border-left: 2px solid var(--accent);
+  padding-left: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 .jn-c0 { fill: var(--accent); }
 .jn-c1 { fill: var(--user); }
