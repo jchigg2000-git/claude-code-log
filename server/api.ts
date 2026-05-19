@@ -1,6 +1,7 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { buildOverview, buildRepoDetail } from "./fsScan.ts";
 import { buildMetrics } from "./metrics.ts";
+import { buildJourney } from "./journey.ts";
 import { parseTranscript } from "./jsonl.ts";
 import { expandHome, safeResolve } from "./paths.ts";
 
@@ -51,6 +52,14 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     if (url.pathname === "/api/metrics") {
       const logDir = expandHome(url.searchParams.get("logDir") ?? "");
       send(res, 200, await buildMetrics(logDir));
+      return true;
+    }
+
+    if (url.pathname === "/api/journey") {
+      const logDir = expandHome(url.searchParams.get("logDir") ?? "");
+      const daysRaw = Number(url.searchParams.get("days"));
+      const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(365, daysRaw) : 50;
+      send(res, 200, await buildJourney(logDir, days));
       return true;
     }
 

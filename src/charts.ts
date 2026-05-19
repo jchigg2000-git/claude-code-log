@@ -1,4 +1,5 @@
 import { el } from "./dom.ts";
+import type { JourneyEdge, JourneyNode, JourneyVisit } from "./types.ts";
 
 /** Bespoke, theme-matched visualizations. No chart library: the app is
  * zero-framework vanilla DOM with a hand-built palette, and purpose-built
@@ -188,4 +189,309 @@ export function logBars(
     );
   });
   return wrap;
+}
+
+const clampN = (lo: number, hi: number, v: number) => Math.max(lo, Math.min(hi, v));
+
+export type GraphPick =
+  | { type: "node"; node: JourneyNode }
+  | { type: "edge"; edge: JourneyEdge; from: JourneyNode | undefined; to: JourneyNode | undefined };
+
+interface GraphOpts {
+  onPick?: (p: GraphPick) => void;
+  height?: number;
+}
+
+/**
+ * The "mental graph": projects as a force-directed neural-net. Layout is a
+ * deterministic spring/repulsion relaxation (no RNG → stable across renders,
+ * no animation needed). Solid accent edge = an explicit hop (a typed line
+ * named the other project); faint dashed edge = an inferred leap of faith.
+ * Edge weight ∝ how often that hop happened; node size ∝ activity; node tone
+ * ∝ recency. Click a node or edge to inspect it.
+ */
+export function forceGraph(
+  nodes: JourneyNode[],
+  edges: JourneyEdge[],
+  opts: GraphOpts = {},
+): HTMLElement {
+  const W = 1000;
+  const H = opts.height ?? 640;
+  const idx = new Map(nodes.map((n, i) => [n.id, i]));
+  const N = nodes.length;
+
+  const box = el("div", { class: "jn-graph" });
+  if (N === 0) {
+    box.append(el("p", { class: "vz-lede" }, "No project activity in this window."));
+    return box;
+  }
+
+  // Deterministic seed: a golden-angle spiral around the centre.
+  const cx = W / 2;
+  const cy = H / 2;
+  const pos = nodes.map((_, i) => {
+    const a = i * 2.399963;
+    const r = 40 + i * (Math.min(W, H) * 0.36 / Math.max(1, N));
+    return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+  });
+
+  const links = edges
+    .map((e) => ({ s: idx.get(e.from), t: idx.get(e.to), w: e.count }))
+    .filter((l): l is { s: number; t: number; w: number } => l.s !== undefined && l.t !== undefined);
+
+  // Spring/repulsion relaxation.
+  const REST = 150;
+  const K_REP = 60_000;
+  const K_SPR = 0.02;
+  const K_GRAV = 0.012;
+  const ITERS = 420;
+  for (let it = 0; it < ITERS; it++) {
+    const cool = 1 - it / ITERS;
+    const dx = new Array(N).fill(0);
+    const dy = new Array(N).fill(0);
+    for (let i = 0; i < N; i++) {
+      for (let j = i + 1; j < N; j++) {
+        let vx = pos[i].x - pos[j].x;
+        let vy = pos[i].y - pos[j].y;
+        let d2 = vx * vx + vy * vy;
+        if (d2 < 1) {
+          d2 = 1;
+          vx = (i - j) || 1;
+          vy = 1;
+        }
+        const f = K_REP / d2;
+        const d = Math.sqrt(d2);
+        const ux = (vx / d) * f;
+        const uy = (vy / d) * f;
+        dx[i] += ux;
+        dy[i] += uy;
+        dx[j] -= ux;
+        dy[j] -= uy;
+      }
+    }
+    for (const l of links) {
+      const vx = pos[l.t].x - pos[l.s].x;
+      const vy = pos[l.t].y - pos[l.s].y;
+      const d = Math.sqrt(vx * vx + vy * vy) || 1;
+      const f = (d - REST) * K_SPR * Math.min(3, 1 + Math.log2(l.w + 1));
+      const ux = (vx / d) * f;
+      const uy = (vy / d) * f;
+      dx[l.s] += ux;
+      dy[l.s] += uy;
+      dx[l.t] -= ux;
+      dy[l.t] -= uy;
+    }
+    for (let i = 0; i < N; i++) {
+      dx[i] += (cx - pos[i].x) * K_GRAV;
+      dy[i] += (cy - pos[i].y) * K_GRAV;
+      const step = 14 * cool;
+      pos[i].x += clampN(-step, step, dx[i]);
+      pos[i].y += clampN(-step, step, dy[i]);
+    }
+  }
+
+  // Fit to viewBox with padding.
+  const pad = 54;
+  const xs = pos.map((p) => p.x);
+  const ys = pos.map((p) => p.y);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const sx = (W - 2 * pad) / Math.max(1, maxX - minX);
+  const sy = (H - 2 * pad) / Math.max(1, maxY - minY);
+  const sc = Math.min(sx, sy);
+  for (const p of pos) {
+    p.x = pad + (p.x - minX) * sc;
+    p.y = pad + (p.y - minY) * sc;
+  }
+
+  const maxCmd = Math.max(1, ...nodes.map((n) => n.commands));
+  const radius = (n: JourneyNode) => clampN(7, 30, 6 + Math.sqrt(n.commands / maxCmd) * 26);
+
+  const times = nodes.map((n) => Date.parse(n.last));
+  const tMin = Math.min(...times);
+  const tMax = Math.max(...times);
+  const recencyTone = (n: JourneyNode) => {
+    const f = tMax > tMin ? (Date.parse(n.last) - tMin) / (tMax - tMin) : 1;
+    return `jn-r${clampN(0, 3, Math.floor(f * 4))}`;
+  };
+
+  const edgePath = (sI: number, tI: number, dir: number) => {
+    const a = pos[sI];
+    const b = pos[tI];
+    const mx = (a.x + b.x) / 2;
+    const my = (a.y + b.y) / 2;
+    const nx = -(b.y - a.y);
+    const ny = b.x - a.x;
+    const len = Math.hypot(nx, ny) || 1;
+    const bow = 26 * dir;
+    return `M${a.x.toFixed(1)} ${a.y.toFixed(1)} Q ${(mx + (nx / len) * bow).toFixed(1)} ${(
+      my +
+      (ny / len) * bow
+    ).toFixed(1)} ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+  };
+
+  const edgeSvg = edges
+    .map((e, i) => {
+      const s = idx.get(e.from);
+      const t = idx.get(e.to);
+      if (s === undefined || t === undefined) return "";
+      const dir = e.from < e.to ? 1 : -1;
+      const sw = clampN(0.7, 6, Math.log2(e.count + 1) * 1.1).toFixed(2);
+      const cls = e.confidence === "explicit" ? "jn-edge explicit" : "jn-edge inferred";
+      const mk = e.confidence === "explicit" ? "jnA" : "jnI";
+      return `<path class="${cls}" data-edge="${i}" d="${edgePath(s, t, dir)}"
+        stroke-width="${sw}" marker-end="url(#${mk})"/>`;
+    })
+    .join("");
+
+  const nodeSvg = nodes
+    .map((n, i) => {
+      const r = radius(n);
+      const p = pos[i];
+      const showLabel = r >= 12 || N <= 18;
+      const label = showLabel
+        ? `<text class="jn-nlabel" x="${p.x.toFixed(1)}" y="${(p.y + r + 13).toFixed(
+            1,
+          )}" text-anchor="middle">${esc(n.name)}</text>`
+        : "";
+      return `<g class="jn-node ${recencyTone(n)}" data-node="${i}">
+        <title>${esc(n.name)} · ${n.commands} lines · ${n.sessions} sessions</title>
+        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r.toFixed(1)}"/>
+        ${label}</g>`;
+    })
+    .join("");
+
+  const svg = `<svg viewBox="0 0 ${W} ${H}" class="vz-svg jn-svg" role="img"
+      aria-label="Force-directed graph of projects worked on and the hops between them.">
+    <defs>
+      <marker id="jnA" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6"
+              orient="auto-start-reverse"><path class="jn-ah accent" d="M0 0 L10 5 L0 10 z"/></marker>
+      <marker id="jnI" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6"
+              orient="auto-start-reverse"><path class="jn-ah" d="M0 0 L10 5 L0 10 z"/></marker>
+    </defs>
+    <g class="jn-edges">${edgeSvg}</g>
+    <g class="jn-nodes">${nodeSvg}</g>
+  </svg>`;
+
+  box.innerHTML = svg;
+
+  if (opts.onPick) {
+    const pick = opts.onPick;
+    box.querySelectorAll<SVGElement>("[data-edge]").forEach((p) => {
+      p.addEventListener("click", () => {
+        const e = edges[Number(p.dataset.edge)];
+        pick({
+          type: "edge",
+          edge: e,
+          from: nodes[idx.get(e.from) ?? -1],
+          to: nodes[idx.get(e.to) ?? -1],
+        });
+      });
+    });
+    box.querySelectorAll<SVGElement>("[data-node]").forEach((g) => {
+      g.addEventListener("click", () => pick({ type: "node", node: nodes[Number(g.dataset.node)] }));
+    });
+  }
+  return box;
+}
+
+/**
+ * A deliberately dense, non-linear timeline of the window. One marker per
+ * project "visit" (a contiguous run of work), placed at its time on x; the
+ * thin connector threads visits in chronological order so the jumping-around
+ * is the visible signal, not noise smoothed away. Colour = project.
+ */
+export function sloppyTimeline(
+  visits: JourneyVisit[],
+  opts: { first: string | null; last: string | null; onPick?: (v: JourneyVisit) => void } = {
+    first: null,
+    last: null,
+  },
+): HTMLElement {
+  const W = 1000;
+  const H = 380;
+  const padX = 16;
+  const padTop = 24;
+  const padBot = 34;
+  const box = el("div", { class: "jn-timeline" });
+  if (visits.length === 0) {
+    box.append(el("p", { class: "vz-lede" }, "No visits in this window."));
+    return box;
+  }
+
+  const t0 = Date.parse(opts.first ?? visits[0].ts);
+  const t1 = Date.parse(opts.last ?? visits[visits.length - 1].ts);
+  const span = Math.max(1, t1 - t0);
+  const x = (iso: string) => padX + ((Date.parse(iso) - t0) / span) * (W - 2 * padX);
+
+  // Stable colour + band per project, in first-seen order.
+  const order: string[] = [];
+  for (const v of visits) if (!order.includes(v.project)) order.push(v.project);
+  const colorOf = (p: string) => `jn-c${order.indexOf(p) % 10}`;
+  const bandOf = (p: string) => {
+    const k = order.length > 1 ? order.indexOf(p) / (order.length - 1) : 0.5;
+    return padTop + k * (H - padTop - padBot);
+  };
+  // Deterministic jitter so overlapping visits stay legible and look hand-drawn.
+  const jitter = (ts: string) => ((Date.parse(ts) / 1000) % 47) - 23;
+
+  const pt = visits.map((v) => ({ vx: x(v.ts), vy: bandOf(v.project) + jitter(v.ts), v }));
+
+  const thread = `M${pt.map((p) => `${p.vx.toFixed(1)} ${p.vy.toFixed(1)}`).join(" L")}`;
+
+  const maxCmd = Math.max(1, ...visits.map((v) => v.commands));
+  const dots = pt
+    .map((p, i) => {
+      const r = clampN(2.5, 9, 2.5 + Math.sqrt(p.v.commands / maxCmd) * 8);
+      return `<circle class="jn-dot ${colorOf(p.v.project)}" data-visit="${i}"
+        cx="${p.vx.toFixed(1)}" cy="${p.vy.toFixed(1)}" r="${r.toFixed(1)}">
+        <title>${esc(p.v.name)} · ${shortDate(p.v.ts.slice(0, 10))} · ${p.v.commands} lines
+${esc(p.v.opening)}</title></circle>`;
+    })
+    .join("");
+
+  // Label only the heftiest visits to keep it dense-but-readable.
+  const labelIdx = [...visits.keys()]
+    .sort((a, b) => visits[b].commands - visits[a].commands)
+    .slice(0, 9);
+  const labels = labelIdx
+    .map((i) => {
+      const p = pt[i];
+      const anchor = p.vx > W - 170 ? "end" : p.vx < 130 ? "start" : "middle";
+      return `<text class="jn-tlabel" x="${p.vx.toFixed(1)}" y="${(p.vy - 11).toFixed(
+        1,
+      )}" text-anchor="${anchor}">${esc(p.v.name)}</text>`;
+    })
+    .join("");
+
+  // Sparse date axis.
+  const ticks = 6;
+  const axis = Array.from({ length: ticks }, (_, k) => {
+    const tx = padX + (k / (ticks - 1)) * (W - 2 * padX);
+    const iso = new Date(t0 + (k / (ticks - 1)) * span).toISOString().slice(0, 10);
+    const anchor = k === 0 ? "start" : k === ticks - 1 ? "end" : "middle";
+    return `<line class="jn-axisln" x1="${tx.toFixed(1)}" y1="${padTop - 8}" x2="${tx.toFixed(
+      1,
+    )}" y2="${H - padBot + 6}"/>
+      <text class="vz-axis" x="${tx.toFixed(1)}" y="${H - 10}" text-anchor="${anchor}">${esc(
+        shortDate(iso),
+      )}</text>`;
+  }).join("");
+
+  box.innerHTML = `<svg viewBox="0 0 ${W} ${H}" class="vz-svg jn-tl-svg" role="img"
+      aria-label="Dense non-linear timeline of project visits across the window.">
+    ${axis}
+    <path class="jn-thread" d="${thread}"/>
+    ${dots}${labels}
+  </svg>`;
+
+  if (opts.onPick) {
+    const pick = opts.onPick;
+    box.querySelectorAll<SVGElement>("[data-visit]").forEach((c) => {
+      c.addEventListener("click", () => pick(visits[Number(c.dataset.visit)]));
+    });
+  }
+  return box;
 }

@@ -468,3 +468,134 @@ a.vz-bar-row:hover .vz-bar-label { color: var(--accent); }
   .vz-bar-row { grid-template-columns: 1fr; gap: 6px; }
   .hero-stats { gap: 18px; }
 }
+
+/* ── Journey ──────────────────────────────────────────────────── */
+.jn-graph-wrap {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  gap: 16px;
+  align-items: start;
+}
+.jn-graph,
+.jn-timeline {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.jn-svg,
+.jn-tl-svg { display: block; width: 100%; height: auto; }
+
+/* Edges: solid accent = explicit, faint dashed = inferred leap of faith */
+.jn-edge { fill: none; cursor: pointer; transition: opacity 0.15s; }
+.jn-edge.explicit { stroke: var(--accent); opacity: 0.82; }
+.jn-edge.inferred { stroke: var(--muted); opacity: 0.4; stroke-dasharray: 5 5; }
+.jn-edge:hover { opacity: 1; }
+.jn-ah { fill: var(--muted); opacity: 0.5; }
+.jn-ah.accent { fill: var(--accent); opacity: 0.85; }
+
+.jn-node { cursor: pointer; }
+.jn-node circle { stroke: var(--bg); stroke-width: 1.5; transition: stroke 0.15s; }
+.jn-node:hover circle { stroke: var(--text); }
+.jn-node.jn-r0 circle { fill: #3a3f4d; }
+.jn-node.jn-r1 circle { fill: var(--muted); }
+.jn-node.jn-r2 circle { fill: var(--user); }
+.jn-node.jn-r3 circle { fill: var(--accent); }
+.jn-nlabel {
+  fill: var(--muted);
+  font: 11px ui-monospace, monospace;
+  pointer-events: none;
+}
+.jn-node:hover .jn-nlabel { fill: var(--text); }
+
+/* Sloppy timeline */
+.jn-thread { fill: none; stroke: var(--border); stroke-width: 1; opacity: 0.55; }
+.jn-dot { cursor: pointer; stroke: var(--bg); stroke-width: 1; transition: stroke 0.15s; }
+.jn-dot:hover { stroke: var(--text); }
+.jn-axisln { stroke: var(--border); stroke-width: 1; stroke-dasharray: 2 4; opacity: 0.45; }
+.jn-tlabel {
+  fill: var(--text);
+  font: 600 11px ui-sans-serif, system-ui, sans-serif;
+  pointer-events: none;
+}
+.jn-c0 { fill: var(--accent); }
+.jn-c1 { fill: var(--user); }
+.jn-c2 { fill: var(--tool); }
+.jn-c3 { fill: #6dbf73; }
+.jn-c4 { fill: #e0667d; }
+.jn-c5 { fill: #4fb6b0; }
+.jn-c6 { fill: #9b8cf0; }
+.jn-c7 { fill: #d9a441; }
+.jn-c8 { fill: #d77f4f; }
+.jn-c9 { fill: #8b93a3; }
+
+/* Legend + inspector */
+.jn-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  font-size: 0.8rem;
+  color: var(--muted);
+}
+.jn-legend span { display: flex; align-items: center; gap: 8px; }
+.jn-key { display: inline-block; width: 26px; height: 0; flex: none; }
+.jn-key.explicit { border-top: 3px solid var(--accent); }
+.jn-key.inferred { border-top: 3px dashed var(--muted); }
+.jn-hint { color: var(--muted); font-style: italic; }
+
+.jn-detail {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 16px 18px;
+  position: sticky;
+  top: 70px;
+  min-height: 220px;
+}
+.jn-d-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.jn-d-route {
+  font: 700 0.92rem ui-monospace, monospace;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.jn-badge {
+  font-size: 0.68rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+}
+.jn-badge.explicit { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.jn-badge.inferred { background: var(--panel-2); color: var(--muted); }
+.jn-d-meta { font-size: 0.8rem; color: var(--muted); margin: 4px 0; }
+.jn-d-label {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--muted);
+  margin: 12px 0 5px;
+}
+.jn-quote {
+  margin: 0;
+  background: var(--panel-2);
+  border-left: 3px solid var(--accent);
+  border-radius: 4px;
+  padding: 9px 12px;
+  font: 0.83rem ui-monospace, monospace;
+  color: var(--text);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+.jn-d-foot { font-size: 0.74rem; color: var(--muted); font-style: italic; margin: 12px 0 0; }
+
+@media (max-width: 900px) {
+  .jn-graph-wrap { grid-template-columns: 1fr; }
+  .jn-detail { position: static; }
+}

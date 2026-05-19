@@ -76,6 +76,48 @@ export interface DayMetric {
   cost: number;
 }
 
+/** One project as a node in the mental graph. */
+export interface JourneyNode {
+  id: string; // normalized absolute project path
+  name: string; // friendly display name
+  commands: number; // typed lines in the window
+  sessions: number; // distinct Claude Code sessions
+  first: string; // ISO of first activity in window
+  last: string; // ISO of last activity in window
+}
+
+/** A directed project→project hop, aggregated over the window. */
+export interface JourneyEdge {
+  from: string;
+  to: string;
+  count: number;
+  /** explicit = a typed line near the hop names the other project; inferred = a leap of faith. */
+  confidence: "explicit" | "inferred";
+  /** The representative typed line that plausibly led from `from` into `to`. */
+  bridge: string;
+  at: string; // ISO of that representative hop
+}
+
+/** One contiguous run of work in a single project — a "visit". */
+export interface JourneyVisit {
+  ts: string; // ISO start of the visit
+  project: string; // node id
+  name: string;
+  opening: string; // first substantive typed line of the visit
+  commands: number; // typed lines in this visit
+}
+
+export interface Journey {
+  windowDays: number;
+  first: string | null;
+  last: string | null;
+  totalCommands: number;
+  totalSwitches: number;
+  nodes: JourneyNode[];
+  edges: JourneyEdge[];
+  visits: JourneyVisit[];
+}
+
 export interface Metrics {
   span: { first: string | null; last: string | null; days: number; activeDays: number };
   totals: {
