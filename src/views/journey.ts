@@ -69,21 +69,60 @@ function renderEdge(panel: HTMLElement, e: JourneyEdge, from?: JourneyNode, to?:
   );
 }
 
-function renderNode(panel: HTMLElement, n: JourneyNode): void {
+function renderNode(panel: HTMLElement, n: JourneyNode, j: Journey): void {
   clear(panel);
+  const nameOf = (id: string) => j.nodes.find((x) => x.id === id)?.name ?? id;
+  const out = j.edges.filter((e) => e.from === n.id).sort((a, b) => b.count - a.count);
+  const inc = j.edges.filter((e) => e.to === n.id).sort((a, b) => b.count - a.count);
+  const visits = j.visits.filter((v) => v.project === n.id).length;
+  const spanDays = Math.max(
+    1,
+    Math.round((Date.parse(n.last) - Date.parse(n.first)) / 86_400_000) + 1,
+  );
+  const share = j.totalCommands > 0 ? (n.commands / j.totalCommands) * 100 : 0;
+  const shareStr = share >= 1 ? `${Math.round(share)}%` : "<1%";
+  const outHops = out.reduce((s, e) => s + e.count, 0);
+  const inHops = inc.reduce((s, e) => s + e.count, 0);
+
   panel.append(
     el("div", { class: "jn-d-head" }, el("span", { class: "jn-d-route" }, n.name)),
     el(
       "p",
       { class: "jn-d-meta" },
-      `${compact(n.commands)} lines typed · ${n.sessions} session${n.sessions === 1 ? "" : "s"}`,
+      `${compact(n.commands)} lines · ${n.sessions} session${n.sessions === 1 ? "" : "s"} · ` +
+        `${visits} visit${visits === 1 ? "" : "s"} · ${shareStr} of all typing`,
     ),
     el(
       "p",
       { class: "jn-d-meta" },
-      `${shortDay(n.first)} → ${shortDay(n.last)} · last active ${relativeTime(n.last)}`,
+      `${shortDay(n.first)} → ${shortDay(n.last)} · ${spanDays}d span · ` +
+        `last active ${relativeTime(n.last)}`,
+    ),
+    el(
+      "p",
+      { class: "jn-d-meta" },
+      `${out.length} project${out.length === 1 ? "" : "s"} jumped to (${outHops} hop` +
+        `${outHops === 1 ? "" : "s"}) · ${inc.length} arrived from (${inHops})`,
     ),
   );
+
+  if (out[0] || inc[0]) {
+    panel.append(el("p", { class: "jn-d-label" }, "Strongest connections"));
+    if (out[0]) {
+      panel.append(
+        el("p", { class: "jn-d-meta" }, `→ most often to ${nameOf(out[0].to)} (×${out[0].count})`),
+      );
+    }
+    if (inc[0]) {
+      panel.append(
+        el(
+          "p",
+          { class: "jn-d-meta" },
+          `← most often from ${nameOf(inc[0].from)} (×${inc[0].count})`,
+        ),
+      );
+    }
+  }
 }
 
 function renderVisit(panel: HTMLElement, v: JourneyVisit): void {
@@ -173,7 +212,7 @@ export async function renderJourney(host: HTMLElement): Promise<void> {
   };
 
   const onGraphPick = (p: GraphPick) => {
-    if (p.type === "node") renderNode(panel, p.node);
+    if (p.type === "node") renderNode(panel, p.node, j);
     else renderEdge(panel, p.edge, p.from, p.to);
   };
 
