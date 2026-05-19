@@ -471,10 +471,9 @@ a.vz-bar-row:hover .vz-bar-label { color: var(--accent); }
 
 /* ── Journey ──────────────────────────────────────────────────── */
 .jn-graph-wrap {
-  display: grid;
-  grid-template-columns: 1fr 320px;
-  gap: 16px;
-  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
 }
 .jn-graph,
 .jn-timeline {
@@ -495,16 +494,17 @@ a.vz-bar-row:hover .vz-bar-label { color: var(--accent); }
 .jn-ah.accent { fill: var(--accent); opacity: 0.85; }
 
 .jn-node { cursor: pointer; }
+/* Node fill is a continuous recency warmth ramp set inline per node. */
 .jn-node circle { stroke: var(--bg); stroke-width: 1.5; transition: stroke 0.15s; }
 .jn-node:hover circle { stroke: var(--text); }
-.jn-node.jn-r0 circle { fill: #3a3f4d; }
-.jn-node.jn-r1 circle { fill: var(--muted); }
-.jn-node.jn-r2 circle { fill: var(--user); }
-.jn-node.jn-r3 circle { fill: var(--accent); }
 .jn-nlabel {
   fill: var(--muted);
   font: 11px ui-monospace, monospace;
   pointer-events: none;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 3.5px;
+  stroke-linejoin: round;
 }
 .jn-node:hover .jn-nlabel { fill: var(--text); }
 
@@ -547,11 +547,10 @@ a.vz-bar-row:hover .vz-bar-label { color: var(--accent); }
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 16px 16px 18px;
-  position: sticky;
-  top: 70px;
-  min-height: 220px;
+  padding: 14px 18px 16px;
+  min-height: 96px;
 }
+.jn-detail .jn-quote { max-width: 90ch; }
 .jn-d-head {
   display: flex;
   justify-content: space-between;
@@ -594,8 +593,3 @@ a.vz-bar-row:hover .vz-bar-label { color: var(--accent); }
   white-space: pre-wrap;
 }
 .jn-d-foot { font-size: 0.74rem; color: var(--muted); font-style: italic; margin: 12px 0 0; }
-
-@media (max-width: 900px) {
-  .jn-graph-wrap { grid-template-columns: 1fr; }
-  .jn-detail { position: static; }
-}

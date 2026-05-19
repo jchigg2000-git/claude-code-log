@@ -29,6 +29,32 @@ function shortDate(iso: string): string {
   return `${mon[(m || 1) - 1]} ${d}`;
 }
 
+/** Continuous cold→hot recency ramp: 0 = long untouched (neutral gray) then
+ * up through the full spectrum to 1 = freshly worked (hot red). */
+const HEAT_RAMP: [number, number, number][] = [
+  [0x80, 0x86, 0x92], // cold — neutral gray (stale)
+  [0x3c, 0x6f, 0xd6], // blue
+  [0x22, 0xb5, 0xc4], // cyan
+  [0x4f, 0xc2, 0x4f], // green
+  [0xf2, 0xd0, 0x35], // yellow
+  [0xf0, 0x8a, 0x24], // orange
+  [0xe5, 0x36, 0x2c], // hot — red (fresh)
+];
+function warmth(f: number): string {
+  const t = Math.max(0, Math.min(1, f));
+  const segs = HEAT_RAMP.length - 1;
+  const x = t * segs;
+  const i = Math.min(segs - 1, Math.floor(x));
+  const lt = x - i;
+  const a = HEAT_RAMP[i];
+  const b = HEAT_RAMP[i + 1];
+  const hex = (k: number) =>
+    Math.round(a[k] + (b[k] - a[k]) * lt)
+      .toString(16)
+      .padStart(2, "0");
+  return `#${hex(0)}${hex(1)}${hex(2)}`;
+}
+
 interface AreaOpts {
   height?: number;
   /** Annotate the N tallest points with date + value. */
@@ -215,8 +241,8 @@ export function forceGraph(
   edges: JourneyEdge[],
   opts: GraphOpts = {},
 ): HTMLElement {
-  const W = 1000;
-  const H = opts.height ?? 640;
+  const W = 1200;
+  const H = opts.height ?? 720;
   const idx = new Map(nodes.map((n, i) => [n.id, i]));
   const N = nodes.length;
 
@@ -239,12 +265,15 @@ export function forceGraph(
     .map((e) => ({ s: idx.get(e.from), t: idx.get(e.to), w: e.count }))
     .filter((l): l is { s: number; t: number; w: number } => l.s !== undefined && l.t !== undefined);
 
-  // Spring/repulsion relaxation.
-  const REST = 150;
-  const K_REP = 60_000;
-  const K_SPR = 0.02;
-  const K_GRAV = 0.012;
-  const ITERS = 420;
+  // Spring/repulsion relaxation establishes topology (connected projects sit
+  // near each other) and strong gravity keeps it one cohesive mass so stray
+  // nodes don't strand in empty canvas. The collision pass below then expands
+  // that compact mass to fill the space with zero overlap.
+  const REST = 130;
+  const K_REP = 92_000;
+  const K_SPR = 0.016;
+  const K_GRAV = 0.07;
+  const ITERS = 520;
   for (let it = 0; it < ITERS; it++) {
     const cool = 1 - it / ITERS;
     const dx = new Array(N).fill(0);
@@ -290,32 +319,95 @@ export function forceGraph(
     }
   }
 
-  // Fit to viewBox with padding.
-  const pad = 54;
+  // Fit to the viewBox, then centre the cluster so the freed space is shared
+  // evenly on both axes instead of pooling against the top-left padding.
+  const pad = 56;
   const xs = pos.map((p) => p.x);
   const ys = pos.map((p) => p.y);
   const minX = Math.min(...xs);
   const maxX = Math.max(...xs);
   const minY = Math.min(...ys);
   const maxY = Math.max(...ys);
-  const sx = (W - 2 * pad) / Math.max(1, maxX - minX);
-  const sy = (H - 2 * pad) / Math.max(1, maxY - minY);
-  const sc = Math.min(sx, sy);
+  const spanX = Math.max(1, maxX - minX);
+  const spanY = Math.max(1, maxY - minY);
+  const sc = Math.min((W - 2 * pad) / spanX, (H - 2 * pad) / spanY);
+  const offX = (W - spanX * sc) / 2;
+  const offY = (H - spanY * sc) / 2;
   for (const p of pos) {
-    p.x = pad + (p.x - minX) * sc;
-    p.y = pad + (p.y - minY) * sc;
+    p.x = offX + (p.x - minX) * sc;
+    p.y = offY + (p.y - minY) * sc;
   }
 
   const maxCmd = Math.max(1, ...nodes.map((n) => n.commands));
-  const radius = (n: JourneyNode) => clampN(7, 30, 6 + Math.sqrt(n.commands / maxCmd) * 26);
+  const radius = (n: JourneyNode) => clampN(7, 26, 6 + Math.sqrt(n.commands / maxCmd) * 22);
 
-  const times = nodes.map((n) => Date.parse(n.last));
-  const tMin = Math.min(...times);
-  const tMax = Math.max(...times);
-  const recencyTone = (n: JourneyNode) => {
-    const f = tMax > tMin ? (Date.parse(n.last) - tMin) / (tMax - tMin) : 1;
-    return `jn-r${clampN(0, 3, Math.floor(f * 4))}`;
-  };
+  // Overlap resolution in final pixel space: the force pass settles topology,
+  // this guarantees no two circles touch — which also expands the dense core
+  // to actually fill the canvas instead of clumping. Radii + a label-aware
+  // gap; clamp inside the frame each pass.
+  const rad = nodes.map((n) => radius(n));
+  const COLL_ITERS = 28;
+  for (let it = 0; it < COLL_ITERS; it++) {
+    for (let i = 0; i < N; i++) {
+      for (let j = i + 1; j < N; j++) {
+        let vx = pos[j].x - pos[i].x;
+        let vy = pos[j].y - pos[i].y;
+        let d = Math.hypot(vx, vy);
+        const gap = rad[i] + rad[j] + 44;
+        if (d < 0.01) {
+          vx = (i % 2 ? 1 : -1);
+          vy = i % 3 ? 1 : -1;
+          d = 1;
+        }
+        if (d < gap) {
+          const push = (gap - d) / 2;
+          const ux = vx / d;
+          const uy = vy / d;
+          pos[i].x -= ux * push;
+          pos[i].y -= uy * push;
+          pos[j].x += ux * push;
+          pos[j].y += uy * push;
+        }
+      }
+    }
+    for (let i = 0; i < N; i++) {
+      pos[i].x = clampN(pad + rad[i], W - pad - rad[i], pos[i].x);
+      pos[i].y = clampN(pad + rad[i], H - pad - rad[i], pos[i].y);
+    }
+  }
+
+  // Stretch the overlap-free layout to fill the whole frame. Both axes scale
+  // by ≥1 so separations only grow (overlap can't return); anisotropy is
+  // capped so a thin cluster fills the width without smearing into spaghetti.
+  {
+    const inset = pad + 22;
+    const bx0 = Math.min(...pos.map((p) => p.x));
+    const bx1 = Math.max(...pos.map((p) => p.x));
+    const by0 = Math.min(...pos.map((p) => p.y));
+    const by1 = Math.max(...pos.map((p) => p.y));
+    let fx = Math.max(1, (W - 2 * inset) / Math.max(1, bx1 - bx0));
+    let fy = Math.max(1, (H - 2 * inset) / Math.max(1, by1 - by0));
+    const lo = Math.min(fx, fy);
+    fx = Math.min(fx, lo * 2.4);
+    fy = Math.min(fy, lo * 2.4);
+    const offX = inset + (W - 2 * inset - (bx1 - bx0) * fx) / 2;
+    const offY = inset + (H - 2 * inset - (by1 - by0) * fy) / 2;
+    for (const p of pos) {
+      p.x = offX + (p.x - bx0) * fx;
+      p.y = offY + (p.y - by0) * fy;
+    }
+  }
+
+  // Recency colour by *rank*, not raw time: almost everything was touched
+  // near the end of the window, so a linear time map pins ~everyone at the
+  // hot end. Percentile rank exercises the whole ramp — a true heatmap of
+  // coldest → hottest project, evenly spread.
+  const rankFrac = new Map<string, number>();
+  [...nodes]
+    .map((n) => ({ id: n.id, t: Date.parse(n.last) }))
+    .sort((a, b) => a.t - b.t)
+    .forEach((o, k, arr) => rankFrac.set(o.id, arr.length > 1 ? k / (arr.length - 1) : 1));
+  const recencyFill = (n: JourneyNode) => warmth(rankFrac.get(n.id) ?? 1);
 
   const edgePath = (sI: number, tI: number, dir: number) => {
     const a = pos[sI];
@@ -356,9 +448,11 @@ export function forceGraph(
             1,
           )}" text-anchor="middle">${esc(n.name)}</text>`
         : "";
-      return `<g class="jn-node ${recencyTone(n)}" data-node="${i}">
+      return `<g class="jn-node" data-node="${i}">
         <title>${esc(n.name)} · ${n.commands} lines · ${n.sessions} sessions</title>
-        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r.toFixed(1)}"/>
+        <circle cx="${p.x.toFixed(1)}" cy="${p.y.toFixed(1)}" r="${r.toFixed(1)}" fill="${recencyFill(
+          n,
+        )}"/>
         ${label}</g>`;
     })
     .join("");
