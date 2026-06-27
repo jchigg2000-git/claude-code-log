@@ -57,3 +57,19 @@ export function fetchJourney(cfg: AppConfig, days = 50): Promise<Journey> {
   }
   return journeyCache.promise;
 }
+
+export function invalidateJourney(): void {
+  journeyCache = null;
+}
+
+/**
+ * Subscribe to server-side filesystem change notifications via SSE. `onChange`
+ * fires (already debounced server-side) whenever the watched logDir mutates.
+ * Returns an unsubscribe function; a no-op where EventSource is unavailable.
+ */
+export function subscribeToChanges(cfg: AppConfig, onChange: () => void): () => void {
+  if (typeof EventSource === "undefined") return () => {};
+  const es = new EventSource(`/api/watch?${q({ logDir: cfg.logDir })}`);
+  es.addEventListener("change", () => onChange());
+  return () => es.close();
+}

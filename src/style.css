@@ -649,3 +649,27 @@ a.vz-bar-row:hover .vz-bar-label { color: var(--accent); }
   white-space: pre-wrap;
 }
 .jn-d-foot { font-size: 0.74rem; color: var(--muted); font-style: italic; margin: 12px 0 0; }
+
+/* Live-refresh toast — flashes when the on-disk logs change and the view
+   re-renders in place. */
+#live-toast {
+  position: fixed;
+  bottom: 20px;
+  left: 50%;
+  transform: translate(-50%, 16px);
+  padding: 8px 16px;
+  background: var(--panel-2);
+  color: var(--accent);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-size: 0.82rem;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease, transform 0.25s ease;
+  z-index: 50;
+}
+#live-toast.show {
+  opacity: 1;
+  transform: translate(-50%, 0);
+}
