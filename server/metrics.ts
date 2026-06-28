@@ -31,6 +31,38 @@ export interface DayMetric {
   cost: number;
 }
 
+/** One subagent type, rolled up across the corpus. */
+export interface AgentTypeStat {
+  type: string;
+  count: number;
+  seconds: number; // cumulative on-the-clock time for matched runs
+  maxSeconds: number;
+}
+
+/** A single notably long subagent run, for the "longest missions" list. */
+export interface AgentMission {
+  type: string;
+  description: string;
+  seconds: number;
+  at: string;
+}
+
+/**
+ * Subagent (the `Agent`/`Task` tool) analysis. Counts are MEASURED — every
+ * `tool_use` with name Agent/Task is one dispatch. Durations are MEASURED too:
+ * the wall-clock gap between the dispatch and its matching `tool_result` (paired
+ * by `tool_use_id`). A few unmatched dispatches (agent never returned a result
+ * in-transcript) contribute to `total` but not to `totalSeconds`.
+ */
+export interface AgentSummary {
+  total: number;
+  withDuration: number;
+  totalSeconds: number;
+  byType: AgentTypeStat[];
+  byDay: { date: string; count: number }[];
+  longest: AgentMission[];
+}
+
 export interface Metrics {
   span: { first: string | null; last: string | null; days: number; activeDays: number };
   totals: {
@@ -55,9 +87,24 @@ export interface Metrics {
   topByCost: ProjectMetric[];
   harvest: ProjectMetric[];
   self: ProjectMetric | null;
+  agents: AgentSummary;
+  /**
+   * Measured "on the clock" working time — the time Claude was actually doing
+   * work, INCLUDING the main thread (not just sub-agents). Computed on the main
+   * thread (sidechain rows excluded) as the sum of gaps between consecutive
+   * messages, counting model-generation gaps AND tool/sub-agent execution gaps
+   * but EXCLUDING the gap before a real human prompt (that's the human thinking,
+   * not Claude working). Each gap is clamped at {@link WORK_CAP_SEC} to drop
+   * idle/anomalous spans. `workingSeconds` ≫ `agents.totalSeconds`: the fleet is
+   * only the delegated slice of the whole.
+   */
+  engagement: { workingSeconds: number; gapCapSeconds: number };
 }
 
 const SIZE_CAP = 60 * 1024 * 1024;
+/** A single gap between consecutive messages longer than this is treated as a
+ *  pause/anomaly and clamped, so working time tracks active work, not wall-clock. */
+const WORK_CAP_SEC = 600;
 
 /** Public list pricing, USD per 1M tokens: [input, output, cacheWrite, cacheRead]. */
 const PRICING: Record<"opus" | "sonnet" | "haiku", [number, number, number, number]> = {
@@ -156,6 +203,12 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
   let promptChars = 0;
   let maxPrompt = 0;
 
+  // Subagent dispatch/return pairing. Keyed by tool_use_id (globally unique),
+  // so we can pair across messages and across files in a single pass.
+  const agentUses = new Map<string, { ts: string | null; type: string; desc: string }>();
+  const agentResults = new Map<string, string | null>();
+  let workingSec = 0;
+
   for (const dirName of dirNames) {
     const scaffold = isScaffold(dirName);
     const projDir = path.join(logDir, dirName);
@@ -202,6 +255,7 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
       }
       a.sessions++;
 
+      let prevMainTs: string | null = null; // main-thread working-time gap accumulation
       for (const line of raw.split("\n")) {
         const trimmed = line.trim();
         if (!trimmed) continue;
@@ -227,6 +281,43 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
           o.message && typeof o.message === "object"
             ? (o.message as Record<string, unknown>)
             : null;
+
+        // Working time, MAIN THREAD only (sidechain rows are the sub-agents, and
+        // their wall-clock already shows up as the tool-result gap on the main
+        // thread). Count generation + tool-execution gaps; skip the gap before a
+        // real human prompt (that gap is the human thinking, not Claude working).
+        if (ts && o.isSidechain !== true && (type === "user" || type === "assistant")) {
+          let isHumanPrompt = false;
+          if (type === "user") {
+            const c = msg?.content;
+            const isToolRes =
+              Array.isArray(c) &&
+              c.some((b) => b && typeof b === "object" && (b as { type?: string }).type === "tool_result");
+            isHumanPrompt = !isToolRes;
+          }
+          if (prevMainTs) {
+            const gap = (Date.parse(ts) - Date.parse(prevMainTs)) / 1000;
+            if (gap > 0 && !isHumanPrompt) workingSec += Math.min(gap, WORK_CAP_SEC);
+          }
+          prevMainTs = ts;
+        }
+
+        // Subagent dispatches (tool_use name Agent/Task) and their returns
+        // (tool_result) can sit in different messages; record both for pairing.
+        if (msg && Array.isArray(msg.content)) {
+          for (const b of msg.content) {
+            if (!b || typeof b !== "object") continue;
+            const blk = b as { type?: string; name?: string; id?: string; tool_use_id?: string; input?: Record<string, unknown> };
+            if (blk.type === "tool_use" && (blk.name === "Agent" || blk.name === "Task") && blk.id) {
+              const input = blk.input ?? {};
+              const subType = typeof input.subagent_type === "string" && input.subagent_type ? input.subagent_type : "unknown";
+              const desc = typeof input.description === "string" ? input.description : "";
+              agentUses.set(blk.id, { ts, type: subType, desc });
+            } else if (blk.type === "tool_result" && blk.tool_use_id && !agentResults.has(blk.tool_use_id)) {
+              agentResults.set(blk.tool_use_id, ts);
+            }
+          }
+        }
 
         if (type === "user" && msg) {
           const content = msg.content;
@@ -341,6 +432,48 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
     .map(toProjectMetric)
     .sort((x, y) => y.cost - x.cost);
 
+  // Roll up subagent dispatches: pair each with its result for a duration.
+  const typeStats = new Map<string, AgentTypeStat>();
+  const agentDay = new Map<string, number>();
+  const missions: AgentMission[] = [];
+  let withDuration = 0;
+  let totalAgentSec = 0;
+  for (const [id, use] of agentUses) {
+    const st =
+      typeStats.get(use.type) ??
+      { type: use.type, count: 0, seconds: 0, maxSeconds: 0 };
+    st.count++;
+    if (use.ts) {
+      const d = use.ts.slice(0, 10);
+      agentDay.set(d, (agentDay.get(d) ?? 0) + 1);
+    }
+    const resTs = agentResults.get(id);
+    if (resTs && use.ts) {
+      const sec = (Date.parse(resTs) - Date.parse(use.ts)) / 1000;
+      if (sec >= 0 && Number.isFinite(sec)) {
+        withDuration++;
+        totalAgentSec += sec;
+        st.seconds += sec;
+        if (sec > st.maxSeconds) st.maxSeconds = sec;
+        missions.push({ type: use.type, description: use.desc, seconds: sec, at: use.ts });
+      }
+    }
+    typeStats.set(use.type, st);
+  }
+  const agents: AgentSummary = {
+    total: agentUses.size,
+    withDuration,
+    totalSeconds: Math.round(totalAgentSec),
+    byType: [...typeStats.values()]
+      .map((s) => ({ ...s, seconds: Math.round(s.seconds), maxSeconds: Math.round(s.maxSeconds) }))
+      .sort((x, y) => y.count - x.count),
+    byDay: [...agentDay.keys()].sort().map((date) => ({ date, count: agentDay.get(date) ?? 0 })),
+    longest: missions
+      .sort((x, y) => y.seconds - x.seconds)
+      .slice(0, 6)
+      .map((m) => ({ ...m, seconds: Math.round(m.seconds) })),
+  };
+
   const data: Metrics = {
     span: { first: firstTs, last: lastTs, days: spanDays, activeDays: byDay.length },
     totals,
@@ -357,6 +490,8 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
       .filter((p) => p.dirName.toLowerCase().includes("harvest"))
       .sort((x, y) => (x.first ?? "").localeCompare(y.first ?? "")),
     self: sortedByCost.find((p) => p.dirName.includes("claude-code-log")) ?? null,
+    agents,
+    engagement: { workingSeconds: Math.round(workingSec), gapCapSeconds: WORK_CAP_SEC },
   };
 
   cache = { key: logDir, at: Date.now(), data };

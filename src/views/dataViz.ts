@@ -2,7 +2,7 @@ import { fetchMetrics } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear } from "../dom.ts";
 import { areaChart, barList, logBars, compact, money } from "../charts.ts";
-import type { Metrics, ProjectMetric } from "../types.ts";
+import type { Metrics, AgentSummary } from "../types.ts";
 
 function statStrip(items: [string, string][]): HTMLElement {
   const strip = el("div", { class: "stats snapshot" });
@@ -24,106 +24,206 @@ function section(title: string, lede: string, body: HTMLElement): HTMLElement {
   );
 }
 
-function find(list: ProjectMetric[], needle: string): ProjectMetric | undefined {
-  return list.find((p) => p.dirName.includes(needle));
+/** Seconds → a terse human duration: "20.7 h", "5 min", "82 s". */
+function dur(sec: number): string {
+  if (sec >= 3600) return (sec / 3600).toFixed(1).replace(/\.0$/, "") + " h";
+  if (sec >= 60) return Math.round(sec / 60) + " min";
+  return Math.round(sec) + " s";
 }
 
-/** The featured graphic: the req↔harvest loop, drawn from the live numbers. */
-function harvestDiagram(m: Metrics): HTMLElement {
-  const req = find(m.harvest, "requirements-harvester");
-  const dataReq = find(m.harvest, "requirements-harvester-data");
-  const reqGen = find(m.harvest, "requirements-harvester");
-  const self = m.self;
-  const trio = (req?.cost ?? 0) + (dataReq?.cost ?? 0) + (reqGen?.cost ?? 0);
+/** Distinct, stable colors for the agent-type fleet bar + legend. */
+const FLEET_COLORS = [
+  "#c98a3c", // accent
+  "#5aa9e6", // user-blue
+  "#b072d6", // tool-purple
+  "#4fc24f", // green
+  "#f2d035", // yellow
+  "#22b5c4", // cyan
+  "#e5362c", // red
+  "#8b93a3", // gray
+];
 
-  const node = (
-    x: number,
-    y: number,
-    w: number,
-    title: string,
-    line: string,
-    tone: "user" | "tool" | "accent",
-  ) => `
-    <g>
-      <rect class="vz-nb vz-stroke-${tone}" x="${x}" y="${y}" width="${w}" height="58" rx="9"/>
-      <text x="${x + w / 2}" y="${y + 24}" text-anchor="middle" class="vz-n-title">${title}</text>
-      <text x="${x + w / 2}" y="${y + 42}" text-anchor="middle" class="vz-n-sub">${line}</text>
-    </g>`;
+/**
+ * The headline graphic: time on the clock, and the subagent fleet. The hero
+ * "on the clock" figure is the WHOLE of Claude's working time — the main thread
+ * plus tools and sub-agents — not just the fleet. Working time is measured from
+ * message gaps (human think-time excluded); agent counts and durations are
+ * measured (each dispatch is an `Agent`/`Task` tool call paired to its result).
+ */
+function agentSection(a: AgentSummary, workingHours: number): HTMLElement {
+  const onClockH = a.totalSeconds / 3600;
+  const avgSec = a.withDuration ? a.totalSeconds / a.withDuration : 0;
 
-  const fmt = (p?: ProjectMetric) =>
-    p ? `${money(p.cost)} · ${p.sessions} sess · ${p.userPrompts} prompts` : "—";
-
-  const svg = `<svg viewBox="0 0 1000 380" class="vz-svg vz-diagram" role="img"
-       aria-label="The requirements-harvester recursion: requirements-harvester seeds requirements-harvester-data; the family harvests the corpus this dashboard also reads.">
-    <defs>
-      <marker id="vzah" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7"
-              markerHeight="7" orient="auto-start-reverse">
-        <path class="vz-ah" d="M0 0 L10 5 L0 10 z"/>
-      </marker>
-      <marker id="vzahA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7"
-              markerHeight="7" orient="auto-start-reverse">
-        <path class="vz-ah accent" d="M0 0 L10 5 L0 10 z"/>
-      </marker>
-    </defs>
-
-    ${node(40, 30, 230, "requirements-harvester", fmt(req), "user")}
-    ${node(40, 150, 230, "requirements-harvester", fmt(reqGen), "tool")}
-    ${node(385, 90, 240, "requirements-harvester-data", fmt(dataReq), "accent")}
-
-    <!-- requirements-harvester's direct output seeds requirements-harvester-data -->
-    <path class="vz-ln accent" d="M270 59 C 330 59 330 110 385 116" stroke-width="2"
-          marker-end="url(#vzahA)"/>
-    <text x="332" y="78" text-anchor="middle" class="vz-edge accent">output seeds →</text>
-
-    <!-- both harvest the same corpus -->
-    <path class="vz-ln" d="M270 179 C 330 179 340 140 385 134" stroke-width="1.5"
-          stroke-dasharray="4 3" marker-end="url(#vzah)"/>
-
-    <!-- the corpus -->
-    <g>
-      <ellipse class="vz-cyl" cx="780" cy="120" rx="70" ry="16"/>
-      <path class="vz-cyl" d="M710 120 V 188 A 70 16 0 0 0 850 188 V 120"/>
-      <ellipse class="vz-cyl-rim" cx="780" cy="120" rx="70" ry="16"/>
-      <text x="780" y="150" text-anchor="middle" class="vz-n-title">the corpus</text>
-      <text x="780" y="170" text-anchor="middle" class="vz-n-sub">${
-        m.totals.sessions
-      } sessions</text>
-    </g>
-    <path class="vz-ln" d="M625 150 C 670 160 690 158 712 156" stroke-width="2"
-          marker-end="url(#vzah)"/>
-    <text x="668" y="140" text-anchor="middle" class="vz-edge">harvests →</text>
-
-    <!-- this app reads the same corpus -->
-    ${node(660, 280, 240, "claude-code-log", self ? fmt(self) : "this dashboard", "user")}
-    <path class="vz-ln user" d="M780 204 C 780 240 780 250 780 280" stroke-width="2"
-          marker-end="url(#vzah)"/>
-    <text x="800" y="246" class="vz-edge">reads ↓</text>
-
-    <!-- ouroboros: this very page becomes the next scan -->
-    <path class="vz-ln accent" d="M660 309 C 360 360 120 320 120 230 L 120 212"
-          stroke-width="2" stroke-dasharray="2 4" marker-end="url(#vzahA)"/>
-    <text x="400" y="352" text-anchor="middle" class="vz-edge accent">
-      …this very page becomes the next row in the scan</text>
-  </svg>`;
-
-  const box = el("div", { class: "vz-diagram-wrap" });
-  box.innerHTML = svg;
-
-  const caption = el(
-    "p",
-    { class: "vz-lede" },
-    `Two projects — `,
-    el("code", {}, "requirements-harvester"),
-    `, `,
-    el("code", {}, "requirements-harvester-data"),
-    ` — together ${money(trio)} of estimated spend. ` +
-      `requirements-harvester-data was seeded with the direct output of requirements-harvester: a project ` +
-      `that builds the data to spec the project that specs it. And the whole family ` +
-      `harvests this Claude-Code corpus — the same corpus this dashboard reads. ` +
-      `The session writing this page lands in the next scan. The corpus contains itself.`,
+  // Hero numbers — lead with the whole working time, then the fleet's slice.
+  const hero = el(
+    "div",
+    { class: "vz-hero" },
+    el(
+      "div",
+      { class: "vz-hero-fig accent" },
+      el("span", { class: "vz-hero-v" }, Math.round(workingHours) + " h"),
+      el("span", { class: "vz-hero-l" }, "on the clock"),
+    ),
+    el(
+      "div",
+      { class: "vz-hero-fig" },
+      el("span", { class: "vz-hero-v" }, compact(a.total)),
+      el("span", { class: "vz-hero-l" }, "agents dispatched"),
+    ),
+    el(
+      "div",
+      { class: "vz-hero-fig" },
+      el("span", { class: "vz-hero-v" }, onClockH.toFixed(1) + " h"),
+      el("span", { class: "vz-hero-l" }, "delegated to agents"),
+    ),
+    el(
+      "div",
+      { class: "vz-hero-fig" },
+      el("span", { class: "vz-hero-v" }, a.byType.length.toString()),
+      el("span", { class: "vz-hero-l" }, "agent types"),
+    ),
   );
 
-  return el("div", {}, box, caption);
+  // Segmented "fleet" bar — proportion of the fleet by type, one strip.
+  const fleetBar = el("div", { class: "vz-fleet" });
+  const legend = el("div", { class: "vz-legend" });
+  a.byType.forEach((t, i) => {
+    const color = FLEET_COLORS[i % FLEET_COLORS.length];
+    const pct = (t.count / a.total) * 100;
+    if (pct >= 0.6) {
+      fleetBar.append(
+        el("div", {
+          class: "vz-fleet-seg",
+          style: `width:${pct.toFixed(2)}%;background:${color}`,
+          title: `${t.type}: ${t.count} agents · ${dur(t.seconds)}`,
+        }),
+      );
+    }
+    legend.append(
+      el(
+        "span",
+        { class: "vz-legend-item" },
+        el("span", { class: "vz-legend-dot", style: `background:${color}` }),
+        `${t.type} `,
+        el("span", { class: "vz-legend-n" }, String(t.count)),
+      ),
+    );
+  });
+
+  // By-type ranked bars — value is count, but each row carries its on-clock time.
+  const typeBars = barList(
+    a.byType.map((t, i) => ({
+      label: t.type,
+      value: t.count,
+      display: t.count.toLocaleString("en-US"),
+      sub: `${dur(t.seconds)} on the clock · avg ${dur(t.seconds / Math.max(1, t.count))}`,
+      tone: i === 0 ? "accent" : i === 1 ? "user" : "tool",
+    })),
+  );
+
+  // Who did the most actual work — ranked by cumulative on-clock time.
+  const byTime = [...a.byType].sort((x, y) => y.seconds - x.seconds);
+  const workBars = barList(
+    byTime.map((t, i) => ({
+      label: t.type,
+      value: t.seconds,
+      display: dur(t.seconds),
+      sub: `${t.count} dispatches`,
+      tone: i === 0 ? "accent" : "tool",
+    })),
+  );
+
+  // Longest missions — the heaviest individual runs.
+  const missions = el("div", { class: "vz-missions" });
+  a.longest.forEach((m, i) => {
+    missions.append(
+      el(
+        "div",
+        { class: "vz-mission" },
+        el("span", { class: "vz-mission-rank" }, `#${i + 1}`),
+        el(
+          "div",
+          { class: "vz-mission-body" },
+          el(
+            "div",
+            { class: "vz-mission-head" },
+            el("span", { class: "vz-mission-type" }, m.type),
+            el("span", { class: "vz-mission-dur" }, dur(m.seconds)),
+          ),
+          el("div", { class: "vz-mission-desc" }, m.description || "—"),
+        ),
+      ),
+    );
+  });
+
+  // Dispatch cadence over time.
+  const cadence = areaChart(
+    a.byDay.map((d) => ({ date: d.date, value: d.count })),
+    { height: 180, peaks: 3, first: a.byDay[0]?.date, last: a.byDay.at(-1)?.date },
+  );
+
+  // What that time means — measured, with the main thread included.
+  const manHours = el(
+    "div",
+    { class: "vz-manhours" },
+    el("h3", {}, "How much work is that?"),
+    el(
+      "p",
+      {},
+      `Measured: Claude was on the clock for `,
+      el("strong", {}, `${Math.round(workingHours)} hours`),
+      ` of real work — model generating, plus tools and agents executing, with human ` +
+        `think-time excluded. That is the whole of it, main thread included. Of that total, the `,
+      el("strong", {}, `${a.total} subagents`),
+      ` handled `,
+      el("strong", {}, `${onClockH.toFixed(1)} hours`),
+      ` in parallel — the part that was fanned out rather than done in line.`,
+    ),
+    el(
+      "p",
+      { class: "vz-foot" },
+      `Working time is measured from message timestamps (each gap capped at ten minutes, ` +
+        `human idle excluded); agent counts and durations are exact. Hand-building the same ` +
+        `output would take some multiple of ${Math.round(workingHours)} hours — that part isn't measured.`,
+    ),
+  );
+
+  return el(
+    "section",
+    { class: "vz-section vz-agentry" },
+    el("h2", {}, "The agent fleet"),
+    el(
+      "p",
+      { class: "vz-lede" },
+      `Most of this wasn't typed by one model in a chat box — it ran across the main thread and ` +
+        `a fleet of subagents working in parallel. Every number is read straight from the ` +
+        `transcripts: time on the clock from message gaps (human idle excluded), a dispatch from ` +
+        `each Agent/Task call, a duration from the gap to its result.`,
+    ),
+    hero,
+    el("div", { class: "vz-fleet-wrap" }, fleetBar, legend),
+    el(
+      "div",
+      { class: "vz-split" },
+      el(
+        "div",
+        { class: "vz-split-col" },
+        el("h3", {}, "By type — who gets called"),
+        typeBars,
+      ),
+      el(
+        "div",
+        { class: "vz-split-col" },
+        el("h3", {}, "By time — who does the work"),
+        workBars,
+      ),
+    ),
+    el("h3", { class: "vz-sub-h" }, `Dispatch cadence — ${avgSec.toFixed(0)}s average per run`),
+    cadence,
+    el("h3", { class: "vz-sub-h" }, "Longest missions"),
+    missions,
+    manHours,
+  );
 }
 
 export async function renderDataViz(host: HTMLElement): Promise<void> {
@@ -155,6 +255,7 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
   const t = m.totals;
   const cacheRatio = t.tokIn > 0 ? Math.round(t.tokCacheRead / t.tokIn) : 0;
   const perDay = m.span.activeDays > 0 ? t.cost / m.span.activeDays : 0;
+  const workingHours = m.engagement.workingSeconds / 3600;
 
   host.append(
     el("a", { class: "back", href: "#/" }, "← All repos"),
@@ -165,8 +266,9 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
       el(
         "p",
         { class: "sub" },
-        `Everything built in ~${m.span.days} days, read straight from ${t.sessions} ` +
-          `session transcripts. Live scan; cost is estimated at public list prices.`,
+        `Everything built in ~${m.span.days} days, read straight from ${compact(t.sessions)} ` +
+          `session transcripts. Live scan; cost is estimated at public list prices, ` +
+          `agent counts and durations are measured.`,
       ),
     ),
   );
@@ -177,32 +279,25 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
       [`${m.span.activeDays}/${m.span.days}`, "active days"],
       [compact(t.sessions), "sessions"],
       [compact(t.userPrompts), "human prompts"],
-      [compact(t.assistant), "assistant turns"],
+      [compact(m.agents.total), "agents dispatched"],
+      [`${Math.round(workingHours)} h`, "on the clock"],
       [compact(t.toolCalls), "tool calls"],
       [`≈ ${money(t.cost)}`, "est. spend"],
-      [compact(t.tokCacheRead), "cache-read tokens"],
       [`${t.humanProjects}`, "real projects"],
     ]),
   );
 
-  // ── The headline graphic: the recursion ──────────────────────────
-  host.append(
-    section(
-      "The req⇄harvest recursion",
-      "The bit you asked me to look hard at — and it is genuinely a loop.",
-      harvestDiagram(m),
-    ),
-  );
+  // ── The headline graphic: the agent fleet ────────────────────────
+  host.append(agentSection(m.agents, workingHours));
 
   // ── Pace ─────────────────────────────────────────────────────────
   const busiest = [...m.byDay].sort((a, b) => b.events - a.events)[0];
   host.append(
     section(
       "Pace",
-      `Near-daily for six weeks: activity on ${m.span.activeDays} of ${m.span.days} ` +
-        `calendar days. Biggest single day — ${
-          busiest ? `${busiest.date}, ${compact(busiest.events)} transcript events` : "—"
-        }.`,
+      `Activity on ${m.span.activeDays} of ${m.span.days} calendar days. Biggest single day — ${
+        busiest ? `${busiest.date}, ${compact(busiest.events)} transcript events` : "—"
+      }.`,
       areaChart(
         m.byDay.map((d) => ({ date: d.date, value: d.events })),
         {
@@ -332,7 +427,7 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
               {},
               `${m.self.sessions} sessions and ≈ ${money(m.self.cost)} old`,
             ),
-            ` — all of it today. It is already row in its own dataset.`,
+            ` — it is already a row in its own dataset.`,
           )
         : el("p", {}, "And this dashboard is now part of the corpus it measures."),
       el("p", { class: "vz-foot" }, `Snapshot is live; ${m.totals.scaffoldProjects} throwaway scaffold/temp dirs excluded, as on the Profile page.`),

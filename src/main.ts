@@ -5,8 +5,7 @@ import { renderProfile } from "./views/profile.ts";
 import { renderDataViz } from "./views/dataViz.ts";
 import { renderJourney } from "./views/journey.ts";
 import { openSettings } from "./views/settings.ts";
-import { invalidateMetrics, invalidateJourney, subscribeToChanges } from "./api.ts";
-import { loadConfig } from "./config.ts";
+import { invalidateMetrics, invalidateJourney } from "./api.ts";
 
 const app = document.getElementById("app")!;
 
@@ -46,61 +45,33 @@ function syncNav(pathPart: string): void {
   }
 }
 
-// ── Live refresh ──────────────────────────────────────────────────────────
-// An SSE stream notifies us whenever the log directory changes on disk; we drop
-// the cached scans and re-render the current view in place (scroll preserved).
-let unsubscribeLive: () => void = () => {};
+// ── Periodic refresh ────────────────────────────────────────────────────────
+// Re-scan the logs every few minutes so a long-lived tab picks up new activity
+// without manual reload. Drops the cached scans and re-renders the current view
+// in place (scroll preserved); no push/watch, just a quiet interval.
+const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 let refreshing = false;
-let refreshPending = false;
 
-async function onLogsChanged(): Promise<void> {
-  if (refreshing) {
-    refreshPending = true;
-    return;
-  }
+async function refreshInPlace(): Promise<void> {
+  if (refreshing) return;
   refreshing = true;
   invalidateMetrics();
   invalidateJourney();
   try {
     await route({ preserveScroll: true });
-    flashUpdated();
   } finally {
     refreshing = false;
-    if (refreshPending) {
-      refreshPending = false;
-      void onLogsChanged();
-    }
   }
 }
 
-function startLive(): void {
-  unsubscribeLive();
-  unsubscribeLive = subscribeToChanges(loadConfig(), () => void onLogsChanged());
-}
-
-let toastTimer: ReturnType<typeof setTimeout> | null = null;
-function flashUpdated(): void {
-  let toast = document.getElementById("live-toast");
-  if (!toast) {
-    toast = document.createElement("div");
-    toast.id = "live-toast";
-    toast.textContent = "Updated with new activity";
-    document.body.append(toast);
-  }
-  toast.classList.add("show");
-  if (toastTimer) clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast!.classList.remove("show"), 2200);
-}
+setInterval(() => void refreshInPlace(), REFRESH_INTERVAL_MS);
 
 document.getElementById("settings-btn")!.addEventListener("click", () => {
   openSettings(() => {
     if (location.hash.replace(/^#/, "").startsWith("/repo")) location.hash = "#/";
     else route();
-    // logDir may have changed — re-point the watch stream at it.
-    startLive();
   });
 });
 
 window.addEventListener("hashchange", () => route());
 route();
-startLive();

@@ -3,7 +3,6 @@ import { buildOverview, buildRepoDetail } from "./fsScan.ts";
 import { buildMetrics } from "./metrics.ts";
 import { buildJourney } from "./journey.ts";
 import { parseTranscript } from "./jsonl.ts";
-import { streamWatch } from "./watch.ts";
 import { expandHome, safeResolve } from "./paths.ts";
 
 function send(res: ServerResponse, status: number, body: unknown): void {
@@ -26,13 +25,6 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
   try {
     if (url.pathname === "/api/health") {
       send(res, 200, { ok: true });
-      return true;
-    }
-
-    if (url.pathname === "/api/watch") {
-      // SSE stream — leaves the response open; never falls through to send().
-      const logDir = expandHome(url.searchParams.get("logDir") ?? "");
-      await streamWatch(req, res, logDir);
       return true;
     }
 

@@ -368,19 +368,6 @@ a:hover { text-decoration: underline; }
 .vz-stop-0 { stop-color: var(--accent); stop-opacity: 0.34; }
 .vz-stop-1 { stop-color: var(--accent); stop-opacity: 0; }
 
-/* Recursion diagram */
-.vz-nb { fill: var(--panel-2); stroke-width: 1.5; }
-.vz-stroke-user { stroke: var(--user); }
-.vz-stroke-tool { stroke: var(--tool); }
-.vz-stroke-accent { stroke: var(--accent); }
-.vz-cyl { fill: var(--panel-2); stroke: var(--border); }
-.vz-cyl-rim { fill: none; stroke: var(--accent); stroke-width: 1.5; }
-.vz-ah { fill: var(--muted); }
-.vz-ah.accent { fill: var(--accent); }
-.vz-ln { fill: none; stroke: var(--muted); }
-.vz-ln.accent { stroke: var(--accent); }
-.vz-ln.user { stroke: var(--user); }
-
 .vz-bars { display: flex; flex-direction: column; gap: 9px; }
 .vz-bar-row {
   display: grid;
@@ -418,18 +405,92 @@ a.vz-bar-row:hover .vz-bar-label { color: var(--accent); }
 .vz-bar-fill.tone-tool { background: linear-gradient(90deg, #2e1f3b, var(--tool)); }
 .vz-bar-fill.tone-muted { background: var(--border); }
 
-.vz-diagram-wrap {
+/* ── Agent fleet block (Data Viz headline) ─────────────────────────── */
+.vz-agentry { position: relative; }
+.vz-hero {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow: hidden;
+  margin: 6px 0 18px;
+}
+.vz-hero-fig {
+  background: var(--panel);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.vz-hero-fig.accent { background: var(--accent-soft); }
+.vz-hero-v {
+  font-size: 1.9rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  font-family: ui-monospace, monospace;
+  color: var(--text);
+}
+.vz-hero-fig.accent .vz-hero-v { color: var(--accent); }
+.vz-hero-l { font-size: 0.76rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+
+.vz-fleet-wrap { margin: 0 0 22px; }
+.vz-fleet {
+  display: flex;
+  height: 26px;
+  border-radius: 999px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--panel-2);
+}
+.vz-fleet-seg { height: 100%; transition: opacity 0.2s ease; }
+.vz-fleet-seg:hover { opacity: 0.78; }
+.vz-legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 12px; }
+.vz-legend-item { font-size: 0.78rem; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; }
+.vz-legend-dot { width: 10px; height: 10px; border-radius: 3px; display: inline-block; }
+.vz-legend-n { color: var(--text); font-family: ui-monospace, monospace; font-size: 0.74rem; }
+
+.vz-split { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; margin: 4px 0 8px; }
+.vz-split-col h3, .vz-sub-h { font-size: 0.92rem; margin: 18px 0 12px; color: var(--text); }
+.vz-split-col h3 { margin-top: 4px; }
+@media (max-width: 720px) { .vz-split { grid-template-columns: 1fr; gap: 8px; } }
+
+.vz-missions { display: flex; flex-direction: column; gap: 8px; }
+.vz-mission {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 14px 16px;
-  margin-bottom: 14px;
+  padding: 12px 16px;
 }
-.vz-diagram { max-height: 420px; }
-.vz-n-title { fill: var(--text); font-size: 15px; font-weight: 700; font-family: ui-monospace, monospace; }
-.vz-n-sub { fill: var(--muted); font-size: 12px; font-family: ui-monospace, monospace; }
-.vz-edge { fill: var(--muted); font-size: 12px; font-family: ui-sans-serif, system-ui, sans-serif; }
-.vz-edge.accent { fill: var(--accent); font-weight: 600; }
+.vz-mission-rank { font-family: ui-monospace, monospace; color: var(--muted); font-size: 0.95rem; font-weight: 700; padding-top: 1px; }
+.vz-mission-body { flex: 1; min-width: 0; }
+.vz-mission-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.vz-mission-type {
+  font-family: ui-monospace, monospace;
+  font-size: 0.82rem;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 8px;
+  border-radius: 999px;
+}
+.vz-mission-dur { font-family: ui-monospace, monospace; font-size: 0.82rem; color: var(--text); font-weight: 700; }
+.vz-mission-desc { font-size: 0.86rem; color: var(--muted); margin-top: 5px; overflow-wrap: anywhere; }
+
+.vz-manhours {
+  margin: 22px 0 0;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 16px 22px;
+}
+.vz-manhours h3 { margin: 0 0 8px; font-size: 1rem; }
+.vz-manhours p { margin: 8px 0; color: var(--text); }
+.vz-manhours strong { color: var(--accent); }
 
 .vz-closer {
   margin: 40px 0 0;
@@ -650,26 +711,175 @@ a.vz-bar-row:hover .vz-bar-label { color: var(--accent); }
 }
 .jn-d-foot { font-size: 0.74rem; color: var(--muted); font-style: italic; margin: 12px 0 0; }
 
-/* Live-refresh toast — flashes when the on-disk logs change and the view
-   re-renders in place. */
-#live-toast {
+/* ── Journey: scroll-driven narrative ─────────────────────────────────────── */
+.jny-root { position: relative; }
+
+/* Full-bleed particle backdrop, fixed behind the scrolling scenes. */
+.jny-canvas {
   position: fixed;
-  bottom: 20px;
-  left: 50%;
-  transform: translate(-50%, 16px);
-  padding: 8px 16px;
-  background: var(--panel-2);
-  color: var(--accent);
-  border: 1px solid var(--border);
-  border-radius: var(--radius);
-  font-size: 0.82rem;
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.35);
-  opacity: 0;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  z-index: 0;
   pointer-events: none;
-  transition: opacity 0.25s ease, transform 0.25s ease;
-  z-index: 50;
 }
-#live-toast.show {
-  opacity: 1;
-  transform: translate(-50%, 0);
+
+.jny-back {
+  position: fixed;
+  top: 70px;
+  left: 24px;
+  z-index: 5;
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+  padding: 4px 10px;
+  border-radius: 999px;
+  backdrop-filter: blur(6px);
+}
+
+/* Left progress rail + chapter dots. */
+.jny-rail {
+  position: fixed;
+  left: 22px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 5;
+  display: flex;
+  gap: 14px;
+  align-items: stretch;
+}
+.jny-railbar {
+  width: 3px;
+  border-radius: 3px;
+  background: var(--border);
+  position: relative;
+  overflow: hidden;
+}
+.jny-railbar-fill {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 0%;
+  background: linear-gradient(var(--user), var(--accent));
+  transition: height 0.15s linear;
+}
+.jny-dots { display: flex; flex-direction: column; justify-content: space-between; }
+.jny-dot {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--muted);
+}
+.jny-dot::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--border);
+  border: 1px solid var(--border);
+  flex: none;
+  transition: background 0.2s, transform 0.2s;
+}
+.jny-dot-label {
+  font-size: 0.74rem;
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.2s, transform 0.2s;
+  white-space: nowrap;
+}
+.jny-dot:hover .jny-dot-label { opacity: 1; transform: translateX(0); }
+.jny-dot.active { color: var(--accent); }
+.jny-dot.active::before { background: var(--accent); transform: scale(1.35); }
+.jny-dot.active .jny-dot-label { opacity: 1; transform: translateX(0); }
+
+/* Scenes: each owns a viewport; text sits in a centered glass panel. */
+.jny-scene {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12vh 0;
+}
+.jny-panel {
+  position: sticky;
+  top: 24vh;
+  max-width: 640px;
+  text-align: center;
+  background: color-mix(in srgb, var(--panel) 78%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 30px 34px;
+  backdrop-filter: blur(7px);
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.45);
+}
+.jny-kicker {
+  font-size: 0.74rem;
+  text-transform: uppercase;
+  letter-spacing: 2px;
+  color: var(--accent);
+  margin: 0 0 10px;
+}
+.jny-title {
+  font-size: clamp(1.7rem, 4vw, 2.7rem);
+  line-height: 1.1;
+  margin: 0 0 14px;
+  letter-spacing: -0.5px;
+}
+.jny-lede { color: var(--text); opacity: 0.86; margin: 0 auto; max-width: 52ch; }
+.jny-lede code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 0.85em; }
+.jny-foot { font-size: 0.74rem; color: var(--muted); font-style: italic; margin-top: 14px; }
+.jny-scroll-hint {
+  margin-top: 26px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  letter-spacing: 1px;
+  animation: jnyBob 2s ease-in-out infinite;
+}
+@keyframes jnyBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(6px); } }
+
+/* Big animated figures. */
+.jny-figs {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 22px 34px;
+  margin-top: 26px;
+}
+.jny-fig { display: flex; flex-direction: column; gap: 3px; }
+.jny-fig-v {
+  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  color: var(--text);
+}
+.jny-fig-v.accent { color: var(--accent); }
+.jny-fig-l { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.6px; color: var(--muted); }
+
+/* Interactive map + closer: opaque so the backdrop hands off cleanly. */
+.jny-explore,
+.jny-closer {
+  position: relative;
+  z-index: 1;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  margin-top: 6vh;
+  padding-top: 36px;
+}
+.jny-explore-head { margin-bottom: 4px; }
+.jny-explore-head h2,
+.jny-closer h2 { font-size: clamp(1.5rem, 3vw, 2.1rem); margin: 4px 0 10px; }
+.jny-tl-head { margin: 34px 0 4px; font-size: 1.1rem; }
+.jny-closer { text-align: left; padding-bottom: 40px; }
+.jny-closer code { background: var(--panel-2); padding: 1px 6px; border-radius: 4px; font-size: 0.85em; }
+.jny-closer .btn { margin: 14px 10px 0 0; }
+
+@media (max-width: 900px) {
+  .jny-rail { display: none; }
+  .jny-panel { top: 18vh; padding: 24px; }
 }

@@ -118,6 +118,29 @@ export interface Journey {
   visits: JourneyVisit[];
 }
 
+export interface AgentTypeStat {
+  type: string;
+  count: number;
+  seconds: number;
+  maxSeconds: number;
+}
+
+export interface AgentMission {
+  type: string;
+  description: string;
+  seconds: number;
+  at: string;
+}
+
+export interface AgentSummary {
+  total: number;
+  withDuration: number;
+  totalSeconds: number;
+  byType: AgentTypeStat[];
+  byDay: { date: string; count: number }[];
+  longest: AgentMission[];
+}
+
 export interface Metrics {
   span: { first: string | null; last: string | null; days: number; activeDays: number };
   totals: {
@@ -142,4 +165,6 @@ export interface Metrics {
   topByCost: ProjectMetric[];
   harvest: ProjectMetric[];
   self: ProjectMetric | null;
+  agents: AgentSummary;
+  engagement: { workingSeconds: number; gapCapSeconds: number };
 }
