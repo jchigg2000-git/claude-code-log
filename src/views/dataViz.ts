@@ -2,7 +2,7 @@ import { fetchMetrics } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear } from "../dom.ts";
 import { areaChart, barList, logBars, compact, money } from "../charts.ts";
-import type { Metrics, AgentSummary } from "../types.ts";
+import type { Metrics, AgentSummary, MissionStat } from "../types.ts";
 
 function statStrip(items: [string, string][]): HTMLElement {
   const strip = el("div", { class: "stats snapshot" });
@@ -31,6 +31,12 @@ function dur(sec: number): string {
   return Math.round(sec) + " s";
 }
 
+/** Minutes/hours for a long work turn: "57 min", "1h 9m". */
+function durMission(sec: number): string {
+  const m = Math.round(sec / 60);
+  return m >= 60 ? `${Math.floor(m / 60)}h ${m % 60}m` : `${m} min`;
+}
+
 /** Distinct, stable colors for the agent-type fleet bar + legend. */
 const FLEET_COLORS = [
   "#c98a3c", // accent
@@ -50,7 +56,7 @@ const FLEET_COLORS = [
  * message gaps (human think-time excluded); agent counts and durations are
  * measured (each dispatch is an `Agent`/`Task` tool call paired to its result).
  */
-function agentSection(a: AgentSummary, workingHours: number): HTMLElement {
+function agentSection(a: AgentSummary, workingHours: number, topMissions: MissionStat[]): HTMLElement {
   const onClockH = a.totalSeconds / 3600;
   const avgSec = a.withDuration ? a.totalSeconds / a.withDuration : 0;
 
@@ -133,9 +139,11 @@ function agentSection(a: AgentSummary, workingHours: number): HTMLElement {
     })),
   );
 
-  // Longest missions — the heaviest individual runs.
+  // Longest missions — the heaviest single MAIN-THREAD turns (one prompt, then
+  // Claude running for a stretch). These dwarf any single sub-agent, which cap
+  // out around 25 min.
   const missions = el("div", { class: "vz-missions" });
-  a.longest.forEach((m, i) => {
+  topMissions.forEach((m, i) => {
     missions.append(
       el(
         "div",
@@ -147,10 +155,10 @@ function agentSection(a: AgentSummary, workingHours: number): HTMLElement {
           el(
             "div",
             { class: "vz-mission-head" },
-            el("span", { class: "vz-mission-type" }, m.type),
-            el("span", { class: "vz-mission-dur" }, dur(m.seconds)),
+            el("span", { class: "vz-mission-type" }, m.project),
+            el("span", { class: "vz-mission-dur" }, durMission(m.seconds)),
           ),
-          el("div", { class: "vz-mission-desc" }, m.description || "—"),
+          el("div", { class: "vz-mission-desc" }, m.opening || "—"),
         ),
       ),
     );
@@ -220,7 +228,13 @@ function agentSection(a: AgentSummary, workingHours: number): HTMLElement {
     ),
     el("h3", { class: "vz-sub-h" }, `Dispatch cadence — ${avgSec.toFixed(0)}s average per run`),
     cadence,
-    el("h3", { class: "vz-sub-h" }, "Longest missions"),
+    el("h3", { class: "vz-sub-h" }, "Longest missions — single turns of work"),
+    el(
+      "p",
+      { class: "vz-lede" },
+      `One human prompt, then Claude working straight through. These are main-thread turns — ` +
+        `they run far longer than any single sub-agent, which top out near 25 minutes.`,
+    ),
     missions,
     manHours,
   );
@@ -288,7 +302,7 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
   );
 
   // ── The headline graphic: the agent fleet ────────────────────────
-  host.append(agentSection(m.agents, workingHours));
+  host.append(agentSection(m.agents, workingHours, m.topMissions));
 
   // ── Pace ─────────────────────────────────────────────────────────
   const busiest = [...m.byDay].sort((a, b) => b.events - a.events)[0];

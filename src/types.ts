@@ -141,6 +141,12 @@ export interface AgentSummary {
   longest: AgentMission[];
 }
 
+export interface MissionStat {
+  seconds: number;
+  opening: string;
+  project: string;
+}
+
 export interface Metrics {
   span: { first: string | null; last: string | null; days: number; activeDays: number };
   totals: {
@@ -167,4 +173,5 @@ export interface Metrics {
   self: ProjectMetric | null;
   agents: AgentSummary;
   engagement: { workingSeconds: number; gapCapSeconds: number };
+  topMissions: MissionStat[];
 }

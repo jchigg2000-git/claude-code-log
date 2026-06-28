@@ -63,6 +63,19 @@ export interface AgentSummary {
   longest: AgentMission[];
 }
 
+/**
+ * One long MAIN-THREAD work turn — a "mission" the human kicked off and Claude
+ * then worked for a stretch. Duration is the turn's working time (the same
+ * gap-sum as {@link Metrics.engagement}, scoped to one turn). This is the honest
+ * "longest single thing that happened" — sub-agent runs (`AgentMission`) cap out
+ * at ~25 min, but a main-thread turn can run over an hour.
+ */
+export interface MissionStat {
+  seconds: number;
+  opening: string;
+  project: string;
+}
+
 export interface Metrics {
   span: { first: string | null; last: string | null; days: number; activeDays: number };
   totals: {
@@ -99,9 +112,23 @@ export interface Metrics {
    * only the delegated slice of the whole.
    */
   engagement: { workingSeconds: number; gapCapSeconds: number };
+  /** Longest main-thread work turns, human-initiated, by working time. */
+  topMissions: MissionStat[];
 }
 
 const SIZE_CAP = 60 * 1024 * 1024;
+
+/** Openings that aren't a meaningful human "mission" label: harness injections,
+ *  bare approvals, system tags. Turns opening with these are dropped from the list. */
+function isMissionNoise(s: string): boolean {
+  const t = s.trim();
+  if (!t) return true;
+  if (t.startsWith("<")) return true; // task-notification / command tags
+  if (t.startsWith("Caveat:") || t.startsWith("[Request interrupted")) return true;
+  if (t.startsWith("Base directory for this skill")) return true;
+  if (t.length < 16 && /^(y|yes|ok|okay|k|continue|go|go on|proceed|sure|do it|done|next|yep|approved?|resume)\b/i.test(t)) return true;
+  return false;
+}
 /** A single gap between consecutive messages longer than this is treated as a
  *  pause/anomaly and clamped, so working time tracks active work, not wall-clock. */
 const WORK_CAP_SEC = 600;
@@ -208,6 +235,7 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
   const agentUses = new Map<string, { ts: string | null; type: string; desc: string }>();
   const agentResults = new Map<string, string | null>();
   let workingSec = 0;
+  const allMissions: MissionStat[] = []; // longest main-thread work turns
 
   for (const dirName of dirNames) {
     const scaffold = isScaffold(dirName);
@@ -256,6 +284,19 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
       a.sessions++;
 
       let prevMainTs: string | null = null; // main-thread working-time gap accumulation
+      // Per-turn accumulation, to surface the longest single missions.
+      let turnSec = 0;
+      let turnOpen = "";
+      let turnHas = false;
+      const closeTurn = (): void => {
+        if (turnHas && turnSec > 0 && !isMissionNoise(turnOpen)) {
+          allMissions.push({
+            seconds: Math.round(turnSec),
+            opening: turnOpen.trim().replace(/\s+/g, " ").slice(0, 90),
+            project: a.name,
+          });
+        }
+      };
       for (const line of raw.split("\n")) {
         const trimmed = line.trim();
         if (!trimmed) continue;
@@ -288,16 +329,38 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
         // real human prompt (that gap is the human thinking, not Claude working).
         if (ts && o.isSidechain !== true && (type === "user" || type === "assistant")) {
           let isHumanPrompt = false;
+          let promptTxt = "";
           if (type === "user") {
             const c = msg?.content;
             const isToolRes =
               Array.isArray(c) &&
               c.some((b) => b && typeof b === "object" && (b as { type?: string }).type === "tool_result");
             isHumanPrompt = !isToolRes;
+            if (isHumanPrompt) {
+              if (typeof c === "string") promptTxt = c;
+              else if (Array.isArray(c)) {
+                promptTxt = c
+                  .filter((b): b is { type: string; text: string } =>
+                    !!b && typeof b === "object" && (b as { type?: string }).type === "text")
+                  .map((b) => b.text)
+                  .join(" ");
+              }
+            }
           }
           if (prevMainTs) {
             const gap = (Date.parse(ts) - Date.parse(prevMainTs)) / 1000;
-            if (gap > 0 && !isHumanPrompt) workingSec += Math.min(gap, WORK_CAP_SEC);
+            if (gap > 0 && !isHumanPrompt) {
+              const capped = Math.min(gap, WORK_CAP_SEC);
+              workingSec += capped;
+              turnSec += capped; // attribute to the in-flight turn
+            }
+          }
+          if (isHumanPrompt) {
+            // A new human prompt closes the previous turn and opens this one.
+            closeTurn();
+            turnSec = 0;
+            turnOpen = promptTxt;
+            turnHas = true;
           }
           prevMainTs = ts;
         }
@@ -382,6 +445,7 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
           }
         }
       }
+      closeTurn(); // flush the final turn of the session
     }
     projects.push(a);
   }
@@ -492,6 +556,7 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
     self: sortedByCost.find((p) => p.dirName.includes("claude-code-log")) ?? null,
     agents,
     engagement: { workingSeconds: Math.round(workingSec), gapCapSeconds: WORK_CAP_SEC },
+    topMissions: allMissions.sort((x, y) => y.seconds - x.seconds).slice(0, 6),
   };
 
   cache = { key: logDir, at: Date.now(), data };
