@@ -210,12 +210,15 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
   if (cache && cache.key === logDir && Date.now() - cache.at < TTL_MS) return cache.data;
 
   let dirNames: string[];
+  let scanned = true;
   try {
     dirNames = (await readdir(logDir, { withFileTypes: true }))
       .filter((e) => e.isDirectory())
       .map((e) => e.name);
   } catch {
+    // A transient ENOENT/EACCES/FS race must not get cached as an empty result for the whole TTL.
     dirNames = [];
+    scanned = false;
   }
 
   const projects: Acc[] = [];
@@ -307,6 +310,9 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
         } catch {
           continue;
         }
+        // A line parsing to null/primitive (corrupt/partial JSONL) doesn't throw; skip it before
+        // dereferencing o.timestamp, like the other malformed lines.
+        if (!o || typeof o !== "object") continue;
 
         const ts = typeof o.timestamp === "string" ? o.timestamp : null;
         const day = ts && ts.length >= 10 ? ts.slice(0, 10) : null;
@@ -559,6 +565,6 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
     topMissions: allMissions.sort((x, y) => y.seconds - x.seconds).slice(0, 6),
   };
 
-  cache = { key: logDir, at: Date.now(), data };
+  if (scanned) cache = { key: logDir, at: Date.now(), data };
   return data;
 }
