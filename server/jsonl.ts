@@ -64,6 +64,7 @@ export async function parseTranscript(file: string): Promise<TimelineEvent[]> {
     } catch {
       continue;
     }
+    if (!obj || typeof obj !== "object") continue;
 
     const ts = typeof obj.timestamp === "string" ? obj.timestamp : null;
     const type = obj.type;
