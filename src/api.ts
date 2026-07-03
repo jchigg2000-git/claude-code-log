@@ -31,10 +31,14 @@ let metricsCache: { key: string; promise: Promise<Metrics> } | null = null;
 
 export function fetchMetrics(cfg: AppConfig): Promise<Metrics> {
   if (!metricsCache || metricsCache.key !== cfg.logDir) {
-    metricsCache = {
-      key: cfg.logDir,
-      promise: getJSON<Metrics>(`/api/metrics?${q({ logDir: cfg.logDir })}`),
-    };
+    const promise = getJSON<Metrics>(`/api/metrics?${q({ logDir: cfg.logDir })}`);
+    // Don't let a transient failure become permanent: a rejected promise cached here would be
+    // replayed on every re-navigation (callers show an error but never invalidate). Evict on
+    // rejection — guarded so a newer in-flight fetch isn't clobbered — so the next call retries.
+    promise.catch(() => {
+      if (metricsCache?.promise === promise) metricsCache = null;
+    });
+    metricsCache = { key: cfg.logDir, promise };
   }
   return metricsCache.promise;
 }
@@ -50,10 +54,12 @@ let journeyCache: { key: string; promise: Promise<Journey> } | null = null;
 export function fetchJourney(cfg: AppConfig, days = 50): Promise<Journey> {
   const key = `${cfg.logDir}::${days}`;
   if (!journeyCache || journeyCache.key !== key) {
-    journeyCache = {
-      key,
-      promise: getJSON<Journey>(`/api/journey?${q({ logDir: cfg.logDir, days: String(days) })}`),
-    };
+    const promise = getJSON<Journey>(`/api/journey?${q({ logDir: cfg.logDir, days: String(days) })}`);
+    // Same as fetchMetrics: evict on rejection so a transient failure isn't cached permanently.
+    promise.catch(() => {
+      if (journeyCache?.promise === promise) journeyCache = null;
+    });
+    journeyCache = { key, promise };
   }
   return journeyCache.promise;
 }
