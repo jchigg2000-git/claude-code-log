@@ -379,9 +379,9 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
   host.append(
     section(
       "Where the spend went",
-      `Heavily concentrated: the top 5 projects are ${Math.round(
-        (topShare / t.cost) * 100,
-      )}% of all estimated spend. ` +
+      `Heavily concentrated: the top 5 projects are ${
+        t.cost > 0 ? Math.round((topShare / t.cost) * 100) : 0
+      }% of all estimated spend. ` +
         `job-search-engine and job-search-engine are the same project under two directory spellings — ` +
         `the flagship investment, split in two by a typo.`,
       barList(
