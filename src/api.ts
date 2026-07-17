@@ -1,4 +1,4 @@
-import type { AppConfig, Journey, Metrics, Overview, RepoDetail, Session } from "./types.ts";
+import type { AppConfig, Journey, Metrics, Overview, RepoDetail, SearchResults, Session } from "./types.ts";
 
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -23,6 +23,10 @@ export function fetchRepo(cfg: AppConfig, repoPath: string, name: string): Promi
 
 export function fetchSession(cfg: AppConfig, file: string): Promise<Session> {
   return getJSON<Session>(`/api/session?${q({ logDir: cfg.logDir, file })}`);
+}
+
+export function fetchSearch(cfg: AppConfig, query: string): Promise<SearchResults> {
+  return getJSON<SearchResults>(`/api/search?${q({ logDir: cfg.logDir, q: query })}`);
 }
 
 // The metrics scan reads the whole corpus; memoize per logDir for the page

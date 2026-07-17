@@ -2,6 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { buildOverview, buildRepoDetail } from "./fsScan.ts";
 import { buildMetrics } from "./metrics.ts";
 import { buildJourney } from "./journey.ts";
+import { buildSearch } from "./search.ts";
 import { parseTranscript } from "./jsonl.ts";
 import { expandHome, safeResolve } from "./paths.ts";
 
@@ -60,6 +61,13 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
       const daysRaw = Number(url.searchParams.get("days"));
       const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(365, daysRaw) : 50;
       send(res, 200, await buildJourney(logDir, days));
+      return true;
+    }
+
+    if (url.pathname === "/api/search") {
+      const logDir = expandHome(url.searchParams.get("logDir") ?? "");
+      const query = url.searchParams.get("q") ?? "";
+      send(res, 200, await buildSearch(logDir, query));
       return true;
     }
 

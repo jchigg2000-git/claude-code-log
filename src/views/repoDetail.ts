@@ -16,7 +16,7 @@ function specBlock(s: SpecDoc): HTMLElement {
   );
 }
 
-function eventRow(ev: TimelineEvent): HTMLElement {
+export function eventRow(ev: TimelineEvent): HTMLElement {
   const label = ev.tool ? `${ev.kind} · ${ev.tool}` : ev.kind;
   const text = ev.text.length > 4000 ? ev.text.slice(0, 4000) + "\n…(truncated)" : ev.text;
   return el(

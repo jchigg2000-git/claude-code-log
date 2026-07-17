@@ -57,6 +57,26 @@ export interface AppConfig {
   repoRoot: string;
 }
 
+export interface SearchMatch {
+  file: string;
+  sessionId: string;
+  dirName: string;
+  approxPath: string;
+  mtime: string;
+  kind: TimelineEvent["kind"];
+  tool?: string;
+  snippet: string;
+  matchCount: number;
+}
+
+export interface SearchResults {
+  query: string;
+  sessionsSearched: number;
+  matchedSessions: number;
+  truncated: boolean;
+  results: SearchMatch[];
+}
+
 export interface ProjectMetric {
   name: string;
   dirName: string;
