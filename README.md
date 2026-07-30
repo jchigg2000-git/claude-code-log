@@ -18,6 +18,10 @@ npm run dev
 
 Opens automatically at **`http://localhost:5189`**. The port is pinned via `strictPort`, so a collision fails loudly rather than silently drifting onto another port.
 
+## Search
+
+The top bar has a live, debounced **search box** that full-text-searches every transcript across every project (`#/search`, backed by `GET /api/search`). Results are newest-first, capped at 100 rows, with a match count and a highlighted snippet per session; clicking a result opens a standalone transcript view (`#/session`) with the query still highlighted. Queries under 2 characters are ignored.
+
 ## Views
 
 Four tabs across the top, plus a per-repo drill-down:
@@ -42,6 +46,7 @@ Every route is read-only, JSON, and served under `/api/` by `server/api.ts`:
 - `GET /api/session?logDir&file` — a single parsed transcript
 - `GET /api/metrics?logDir` — the whole-corpus rollup (Data Viz)
 - `GET /api/journey?logDir&days` — the project graph + visit timeline (Journey)
+- `GET /api/search?logDir&q` — full-text search across every transcript, newest-first, capped at 100 results
 
 ## Configuration
 
