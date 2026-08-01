@@ -1,15 +1,19 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { decodeProjectDirApprox } from "./paths.ts";
+import { family, loadPricing } from "./pricing.ts";
 
 /**
  * Corpus-wide metrics derived from the raw `.jsonl` transcripts: volume, pace,
  * token usage, and an estimated spend. Read-only, like the rest of the API.
  *
  * Cost is an ESTIMATE: per-message token usage from the transcripts priced at
- * public list rates (below). Prompt-cache reads are priced at the cached rate,
- * so this tracks real billing far better than naive input pricing — but it is
- * still indicative, not an invoice.
+ * public list rates (from {@link loadPricing}, see server/pricing.ts). Prompt-
+ * cache reads are priced at the cached rate, so this tracks real billing far
+ * better than naive input pricing — but it is still indicative, not an
+ * invoice. Rates are overridable (env var or a repo-root `pricing.json`) so
+ * the estimate doesn't silently decay as list prices change — see
+ * `Metrics.pricing` for which table produced a given result.
  */
 
 export interface ProjectMetric {
@@ -114,6 +118,8 @@ export interface Metrics {
   engagement: { workingSeconds: number; gapCapSeconds: number };
   /** Longest main-thread work turns, human-initiated, by working time. */
   topMissions: MissionStat[];
+  /** Which pricing table priced this scan's cost figures, and as-of when. See server/pricing.ts. */
+  pricing: { source: string; effective: string };
 }
 
 const SIZE_CAP = 60 * 1024 * 1024;
@@ -132,21 +138,6 @@ function isMissionNoise(s: string): boolean {
 /** A single gap between consecutive messages longer than this is treated as a
  *  pause/anomaly and clamped, so working time tracks active work, not wall-clock. */
 const WORK_CAP_SEC = 600;
-
-/** Public list pricing, USD per 1M tokens: [input, output, cacheWrite, cacheRead]. */
-const PRICING: Record<"opus" | "sonnet" | "haiku", [number, number, number, number]> = {
-  opus: [15, 75, 18.75, 1.5],
-  sonnet: [3, 15, 3.75, 0.3],
-  haiku: [1, 5, 1.25, 0.1],
-};
-
-function family(model: unknown): keyof typeof PRICING | null {
-  const m = typeof model === "string" ? model.toLowerCase() : "";
-  if (m.includes("opus")) return "opus";
-  if (m.includes("sonnet")) return "sonnet";
-  if (m.includes("haiku")) return "haiku";
-  return null;
-}
 
 /** Throwaway dirs the profile snapshot also excludes: tmp, test scaffolds, worktrees. */
 function isScaffold(dirName: string): boolean {
@@ -208,6 +199,8 @@ const TTL_MS = 5 * 60 * 1000;
 /** Scan every transcript and roll it up. Memoized per logDir for {@link TTL_MS}. */
 export async function buildMetrics(logDir: string): Promise<Metrics> {
   if (cache && cache.key === logDir && Date.now() - cache.at < TTL_MS) return cache.data;
+
+  const pricing = await loadPricing();
 
   let dirNames: string[];
   let scanned = true;
@@ -430,7 +423,7 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
           const fam = family(model);
           let cost = 0;
           if (fam) {
-            const [pi, po, pcw, pcr] = PRICING[fam];
+            const [pi, po, pcw, pcr] = pricing.rates[fam];
             cost = (ti * pi + to * po + tcw * pcw + tcr * pcr) / 1_000_000;
           }
           a.cost += cost;
@@ -563,6 +556,7 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
     agents,
     engagement: { workingSeconds: Math.round(workingSec), gapCapSeconds: WORK_CAP_SEC },
     topMissions: allMissions.sort((x, y) => y.seconds - x.seconds).slice(0, 6),
+    pricing: { source: pricing.source, effective: pricing.effective },
   };
 
   if (scanned) cache = { key: logDir, at: Date.now(), data };

@@ -1,0 +1,9 @@
+{
+  "_comment": "Optional operator override for model pricing used to estimate spend. Copy this file to pricing.json (repo root, gitignored) and edit — or point CLAUDE_CODE_LOG_PRICING at a file anywhere. Every field is optional: a file with only `opus` under `rates` overrides just that family, leaving the others on the built-in table. Rate arrays are USD per 1M tokens, in order [input, output, cacheWrite, cacheRead]. See server/pricing.ts.",
+  "effective": "2026-06-01",
+  "rates": {
+    "opus": [15, 75, 18.75, 1.5],
+    "sonnet": [3, 15, 3.75, 0.3],
+    "haiku": [1, 5, 1.25, 0.1]
+  }
+}

@@ -53,7 +53,15 @@ export async function parseTranscript(file: string): Promise<TimelineEvent[]> {
   } catch {
     return [];
   }
+  return parseTranscriptText(raw);
+}
 
+/**
+ * The parsing half of {@link parseTranscript}, split out so callers that have
+ * already read the file (search reads it to pre-filter) don't read it twice —
+ * and so the parser can be exercised without touching a filesystem.
+ */
+export function parseTranscriptText(raw: string): TimelineEvent[] {
   const events: TimelineEvent[] = [];
   for (const line of raw.split("\n")) {
     const trimmed = line.trim();

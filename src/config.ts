@@ -2,10 +2,17 @@ import type { AppConfig } from "./types.ts";
 
 const STORAGE_KEY = "claude-code-log.config";
 
-/** Seeded defaults: resolved Claude Code log location + the repo base root. */
+/**
+ * Seeded defaults: resolved Claude Code log location + the repo base root.
+ *
+ * `VITE_LOG_DIR` / `VITE_REPO_ROOT` override the seed at build/dev time, which
+ * is how `npm run demo` points a fresh browser at the generated sample corpus
+ * instead of your real transcripts. They are only a SEED — anything saved in
+ * Settings still wins, since that's the user's explicit choice.
+ */
 export const DEFAULT_CONFIG: AppConfig = {
-  logDir: "~/.claude/projects",
-  repoRoot: "~/Projects",
+  logDir: import.meta.env.VITE_LOG_DIR || "~/.claude/projects",
+  repoRoot: import.meta.env.VITE_REPO_ROOT || "~/Projects",
 };
 
 export function loadConfig(): AppConfig {

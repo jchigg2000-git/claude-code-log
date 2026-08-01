@@ -133,14 +133,49 @@ a:hover { text-decoration: underline; }
 .stat-v { font-weight: 700; font-size: 1.05rem; }
 .stat-l { font-size: 0.72rem; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px; }
 
+/* Frozen figures. Deliberately NOT the same visual language as the live stat
+   tiles elsewhere in the app: dashed border, no panel fill, muted values, and a
+   trailing "as of" caption — so a reader can't mistake this strip for a live
+   computation the way a solid panel would invite. See src/views/profile.ts. */
 .snapshot {
   flex-wrap: wrap;
+  align-items: baseline;
   gap: 28px;
-  background: var(--panel);
-  border: 1px solid var(--border);
+  background: transparent;
+  border: 1px dashed var(--border);
   border-radius: var(--radius);
   padding: 18px 22px;
   margin-bottom: 28px;
+}
+.snapshot .stat-v { color: var(--muted); }
+.stat-asof {
+  margin-left: auto;
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.snapshot-banner {
+  max-width: 760px;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-left-width: 3px;
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  margin: 0 0 20px;
+}
+.snapshot-banner p { margin: 0 0 6px; font-size: 0.9rem; }
+.snapshot-banner p:last-child { margin-bottom: 0; }
+.snapshot-tag {
+  display: inline-block;
+  margin-bottom: 8px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--accent);
 }
 
 .narrative {
@@ -270,7 +305,10 @@ a:hover { text-decoration: underline; }
   border-radius: var(--radius);
   padding: 22px;
   color: var(--muted);
+  max-width: 720px;
 }
+.empty p { margin: 0 0 12px; }
+.empty p:last-child { margin-bottom: 0; }
 .error { border-color: #6b2b2b; }
 .hint { color: var(--muted); font-size: 0.82rem; }
 

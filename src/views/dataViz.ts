@@ -270,6 +270,15 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
   const cacheRatio = t.tokIn > 0 ? Math.round(t.tokCacheRead / t.tokIn) : 0;
   const perDay = m.span.activeDays > 0 ? t.cost / m.span.activeDays : 0;
   const workingHours = m.engagement.workingSeconds / 3600;
+  // Names which pricing table produced the cost figures below, so a stale
+  // built-in table (or a stale pricing.json) is visible rather than silently
+  // decaying the spend estimate. See server/pricing.ts.
+  const pricingLabel =
+    m.pricing.source === "pricing.json"
+      ? "pricing.json"
+      : m.pricing.source === "env"
+        ? "env override"
+        : "built-in";
 
   host.append(
     el("a", { class: "back", href: "#/" }, "← All repos"),
@@ -281,8 +290,8 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
         "p",
         { class: "sub" },
         `Everything built in ~${m.span.days} days, read straight from ${compact(t.sessions)} ` +
-          `session transcripts. Live scan; cost is estimated at public list prices, ` +
-          `agent counts and durations are measured.`,
+          `session transcripts. Live scan; cost is estimated at list prices effective ` +
+          `${m.pricing.effective} (${pricingLabel}), agent counts and durations are measured.`,
       ),
     ),
   );

@@ -1,5 +1,5 @@
 import { loadConfig, saveConfig, DEFAULT_CONFIG } from "../config.ts";
-import { invalidateMetrics } from "../api.ts";
+import { invalidateMetrics, invalidateJourney } from "../api.ts";
 import { buildEmbedPrompt } from "../embedPrompt.ts";
 import { el, clear } from "../dom.ts";
 
@@ -111,7 +111,11 @@ export function openSettings(onSaved: () => void): void {
                 logDir: logInput.value.trim() || DEFAULT_CONFIG.logDir,
                 repoRoot: repoInput.value.trim() || DEFAULT_CONFIG.repoRoot,
               });
+              // Both corpus-wide scans are keyed on logDir; changing it must
+              // drop the journey cache too, or the Journey tab keeps rendering
+              // the previous location's history.
               invalidateMetrics();
+              invalidateJourney();
               close();
               onSaved();
             },

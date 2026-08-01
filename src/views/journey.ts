@@ -217,6 +217,51 @@ export async function renderJourney(host: HTMLElement): Promise<void> {
     return;
   }
 
+  // A missing/empty history file is NOT a fetch failure — the server reports it
+  // as an empty journey — so it lands here, not in the catch above. Without this
+  // the whole scrollytelling renders against zeros: a "day one" scene with no
+  // date, empty counters, and a graph with no nodes.
+  if (j.visits.length === 0 || j.nodes.length === 0) {
+    clear(host);
+    host.append(
+      el("a", { class: "back", href: "#/" }, "← All repos"),
+      el(
+        "div",
+        { class: "page-head" },
+        el("h1", {}, "Journey"),
+        el("p", { class: "sub" }, "Nothing to retell yet."),
+      ),
+      el(
+        "div",
+        { class: "empty" },
+        el(
+          "p",
+          {},
+          j.historyFound
+            ? "Your command history was read, but it holds no project activity in the last " +
+                `${j.windowDays} days.`
+            : "This view is reconstructed from Claude Code's command history, and that file wasn't found.",
+        ),
+        el("code", { class: "path" }, j.historyPath),
+        el(
+          "p",
+          { class: "hint" },
+          j.historyFound
+            ? "Use Claude Code for a bit and it will fill in — the other tabs read the session transcripts and work without this file."
+            : "Claude Code writes history.jsonl next to its projects directory. If your log location is set to a copy or a sample corpus, that file won't be beside it — the other three tabs read the transcripts directly and work regardless.",
+        ),
+        el(
+          "p",
+          {},
+          el("a", { class: "btn ghost", href: "#/viz" }, "Go to Data Viz"),
+          " ",
+          el("a", { class: "btn ghost", href: "#/" }, "Browse repos"),
+        ),
+      ),
+    );
+    return;
+  }
+
   clear(host);
 
   // ── Build particle seeds from real visits ──────────────────────────────────

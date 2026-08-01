@@ -136,6 +136,11 @@ export interface Journey {
   nodes: JourneyNode[];
   edges: JourneyEdge[];
   visits: JourneyVisit[];
+  /** Where the server looked for `history.jsonl`, and whether it was readable.
+   *  A missing file yields an empty journey rather than an error, so the view
+   *  needs this to render an honest degraded state. */
+  historyPath: string;
+  historyFound: boolean;
 }
 
 export interface AgentTypeStat {
@@ -194,4 +199,6 @@ export interface Metrics {
   agents: AgentSummary;
   engagement: { workingSeconds: number; gapCapSeconds: number };
   topMissions: MissionStat[];
+  /** Which pricing table priced this scan's cost figures, and as-of when. Mirrors server/pricing.ts. */
+  pricing: { source: string; effective: string };
 }

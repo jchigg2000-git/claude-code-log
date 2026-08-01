@@ -1,4 +1,5 @@
 import { marked } from "marked";
+import { sanitizeHtml } from "./sanitize.ts";
 
 type Attrs = Record<string, string | number | boolean | EventListener>;
 
@@ -35,9 +36,16 @@ export function relativeTime(iso: string | null): string {
   return new Date(iso).toLocaleDateString();
 }
 
-/** Render Markdown from local spec files. Content is local and trusted. */
+/**
+ * Render Markdown crawled from repos under a caller-supplied `repoRoot`.
+ * That root isn't guaranteed to be "the operator's own" (mistyped path,
+ * shared/symlinked root, vendored files), and `marked` passes raw HTML
+ * embedded in markdown straight through — so the parsed output is run
+ * through `sanitizeHtml` before it reaches the DOM, rather than assumed
+ * trusted.
+ */
 export function renderMarkdown(src: string): HTMLElement {
   const div = el("div", { class: "md" });
-  div.innerHTML = marked.parse(src, { async: false }) as string;
+  div.replaceChildren(sanitizeHtml(marked.parse(src, { async: false }) as string));
   return div;
 }

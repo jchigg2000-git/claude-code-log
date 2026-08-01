@@ -6,9 +6,13 @@
   "description": "Local dashboard for browsing Claude Code history across all your repos.",
   "scripts": {
     "dev": "vite",
+    "test": "node --test test/*.test.ts",
     "typecheck": "tsc --noEmit",
     "build": "tsc --noEmit && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "fixtures": "node scripts/make-fixtures.mjs",
+    "demo": "npm run fixtures && VITE_LOG_DIR=\"$PWD/fixtures/projects\" VITE_REPO_ROOT=\"$PWD/fixtures/repos\" vite",
+    "screenshots": "node scripts/make-screenshots.mjs"
   },
   "dependencies": {
     "marked": "^12.0.2"

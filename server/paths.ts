@@ -1,3 +1,4 @@
+import { realpath } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -34,12 +35,68 @@ export function decodeProjectDirApprox(dirName: string): string {
 
 /**
  * Guard against path traversal: returns the resolved absolute path only if it
- * stays within `root`, otherwise null.
+ * stays within `root`, otherwise null. This check is purely lexical — see
+ * {@link safeResolveReal} for the symlink-aware version.
  */
 export function safeResolve(root: string, candidate: string): string | null {
   const resolvedRoot = path.resolve(root);
   const resolved = path.resolve(candidate);
   if (resolved === resolvedRoot) return resolved;
   if (resolved.startsWith(resolvedRoot + path.sep)) return resolved;
+  return null;
+}
+
+/**
+ * Symlink-aware containment. {@link safeResolve} compares strings, so a symlink
+ * living *inside* the root but pointing outside it passes the lexical test and
+ * would then be read. Re-check the fully resolved path before handing it back.
+ *
+ * If either side can't be resolved (path doesn't exist yet, EACCES) we fall
+ * back to the lexical result: the subsequent read will fail on its own, and
+ * failing closed here would break legitimate reads on transient FS races.
+ */
+export async function safeResolveReal(root: string, candidate: string): Promise<string | null> {
+  const lexical = safeResolve(root, candidate);
+  if (!lexical) return null;
+  try {
+    const [realRoot, realTarget] = await Promise.all([realpath(root), realpath(lexical)]);
+    return safeResolve(realRoot, realTarget) ? lexical : null;
+  } catch {
+    return lexical;
+  }
+}
+
+/**
+ * Roots the read-only API is allowed to serve from.
+ *
+ * Every route takes its `logDir`/`repoRoot` from the caller — they're operator
+ * settings persisted in the browser's localStorage, not server config — so
+ * without a boundary the API would happily read any path on the machine. Both
+ * things this app legitimately reads (`~/.claude/projects` and the repo base
+ * root) live under `$HOME`, so `$HOME` is the default boundary.
+ *
+ * `CLAUDE_CODE_LOG_ROOTS` (colon-separated, `~`/`$HOME` expanded) adds roots for
+ * operators who keep repos on another volume.
+ */
+export function allowedRoots(): string[] {
+  const extra = (process.env.CLAUDE_CODE_LOG_ROOTS ?? "")
+    .split(path.delimiter)
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map(expandHome);
+  return [path.resolve(os.homedir()), ...extra];
+}
+
+/**
+ * Expand and validate a caller-supplied root directory. Returns the resolved
+ * absolute path, or null if it falls outside {@link allowedRoots} — callers
+ * should answer 400 rather than reading it.
+ */
+export function resolveRoot(raw: string): string | null {
+  if (!raw.trim()) return null;
+  const resolved = expandHome(raw);
+  for (const root of allowedRoots()) {
+    if (safeResolve(root, resolved)) return resolved;
+  }
   return null;
 }
