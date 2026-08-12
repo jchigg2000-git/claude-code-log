@@ -6,8 +6,9 @@ import { renderDataViz } from "./views/dataViz.ts";
 import { renderJourney } from "./views/journey.ts";
 import { renderSearch } from "./views/search.ts";
 import { renderSession } from "./views/session.ts";
+import { renderWords } from "./views/words.ts";
 import { openSettings } from "./views/settings.ts";
-import { invalidateMetrics, invalidateJourney } from "./api.ts";
+import { invalidateMetrics, invalidateJourney, invalidateWords } from "./api.ts";
 
 const app = document.getElementById("app")!;
 const searchBox = document.getElementById("search-box") as HTMLInputElement;
@@ -37,6 +38,8 @@ async function route(opts: { preserveScroll?: boolean } = {}): Promise<void> {
     await renderDataViz(app);
   } else if (pathPart === "/journey") {
     await renderJourney(app);
+  } else if (pathPart === "/words") {
+    await renderWords(app);
   } else {
     await renderOverview(app);
   }
@@ -50,10 +53,12 @@ function syncNav(pathPart: string): void {
       (a.dataset.route === "profile" && pathPart === "/profile") ||
       (a.dataset.route === "viz" && pathPart === "/viz") ||
       (a.dataset.route === "journey" && pathPart === "/journey") ||
+      (a.dataset.route === "words" && pathPart === "/words") ||
       (a.dataset.route === "repos" &&
         pathPart !== "/profile" &&
         pathPart !== "/viz" &&
         pathPart !== "/journey" &&
+        pathPart !== "/words" &&
         pathPart !== "/search" &&
         pathPart !== "/session");
     a.classList.toggle("active", active);
@@ -72,6 +77,7 @@ async function refreshInPlace(): Promise<void> {
   refreshing = true;
   invalidateMetrics();
   invalidateJourney();
+  invalidateWords();
   try {
     await route({ preserveScroll: true });
   } finally {

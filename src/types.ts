@@ -202,3 +202,32 @@ export interface Metrics {
   /** Which pricing table priced this scan's cost figures, and as-of when. Mirrors server/pricing.ts. */
   pricing: { source: string; effective: string };
 }
+
+/** Mirrors server/words.ts. */
+export type WordCategory = "literal" | "missaid" | "pivot";
+
+export interface WordEntry {
+  file: string;
+  sessionId: string;
+  dirName: string;
+  approxPath: string;
+  ts: string | null;
+  category: WordCategory;
+  /** explicit = the correction names the miscommunication; inferred = pattern-guessed pairing. */
+  confidence: "explicit" | "inferred";
+  label: string;
+  matched: string;
+  original: string;
+  correction: string;
+  assistantTurns: number;
+  toolCalls: number;
+  firstAction: string;
+}
+
+export interface WordsResults {
+  sessionsScanned: number;
+  matchedSessions: number;
+  totalMatches: number;
+  truncated: boolean;
+  entries: WordEntry[];
+}

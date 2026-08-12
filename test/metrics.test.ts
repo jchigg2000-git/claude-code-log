@@ -48,8 +48,8 @@ test("cost is per-model list pricing across all four token buckets", async () =>
   });
 
   const m = await buildMetrics(logDir);
-  // 1M*15 + 100k*75 + 200k*18.75 + 10M*1.5, all per 1M tokens.
-  assert.equal(m.totals.cost, 41.25);
+  // 1M*5 + 100k*25 + 200k*6.25 + 10M*0.5, all per 1M tokens.
+  assert.equal(m.totals.cost, 13.75);
   assert.equal(m.totals.tokIn, 1_000_000);
   assert.equal(m.totals.tokCacheRead, 10_000_000);
   assert.equal(m.pricing.source, "built-in");
@@ -80,13 +80,20 @@ test("an unrecognized model contributes tokens but no cost", async () => {
 
 test("family() classifies model ids and rejects unknowns", () => {
   assert.equal(family("claude-opus-5"), "opus");
+  assert.equal(family("claude-opus-4-8"), "opus");
+  assert.equal(family("claude-opus-4-5-20251101"), "opus");
+  assert.equal(family("claude-opus-4-1"), "opus-legacy", "pre-4.5 opus keeps the $15/$75 rate");
+  assert.equal(family("claude-3-opus-20240229"), "opus-legacy");
+  assert.equal(family("claude-fable-5"), "fable");
+  assert.equal(family("claude-mythos-5"), "fable");
   assert.equal(family("claude-sonnet-5"), "sonnet");
   assert.equal(family("claude-haiku-4-5-20251001"), "haiku");
   assert.equal(family("CLAUDE-OPUS-5"), "opus");
   assert.equal(family("gpt-4"), null);
   assert.equal(family(undefined), null);
   assert.equal(family(42), null);
-  assert.deepEqual(DEFAULT_PRICING.opus, [15, 75, 18.75, 1.5]);
+  assert.deepEqual(DEFAULT_PRICING.opus, [5, 25, 6.25, 0.5]);
+  assert.deepEqual(DEFAULT_PRICING.fable, [10, 50, 12.5, 1]);
 });
 
 test("subagent dispatches pair to their tool_result by tool_use_id", async () => {

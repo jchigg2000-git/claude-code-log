@@ -1,4 +1,4 @@
-import type { AppConfig, Journey, Metrics, Overview, RepoDetail, SearchResults, Session } from "./types.ts";
+import type { AppConfig, Journey, Metrics, Overview, RepoDetail, SearchResults, Session, WordsResults } from "./types.ts";
 
 async function getJSON<T>(url: string): Promise<T> {
   const res = await fetch(url);
@@ -70,4 +70,24 @@ export function fetchJourney(cfg: AppConfig, days = 50): Promise<Journey> {
 
 export function invalidateJourney(): void {
   journeyCache = null;
+}
+
+// The words scan reads the whole corpus; memoize per logDir for the page
+// lifetime, same as metrics.
+let wordsCache: { key: string; promise: Promise<WordsResults> } | null = null;
+
+export function fetchWords(cfg: AppConfig): Promise<WordsResults> {
+  if (!wordsCache || wordsCache.key !== cfg.logDir) {
+    const promise = getJSON<WordsResults>(`/api/words?${q({ logDir: cfg.logDir })}`);
+    // Same as fetchMetrics: evict on rejection so a transient failure isn't cached permanently.
+    promise.catch(() => {
+      if (wordsCache?.promise === promise) wordsCache = null;
+    });
+    wordsCache = { key: cfg.logDir, promise };
+  }
+  return wordsCache.promise;
+}
+
+export function invalidateWords(): void {
+  wordsCache = null;
 }

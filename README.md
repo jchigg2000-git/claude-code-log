@@ -7,7 +7,7 @@ It scans your Claude Code session logs, crawls your repositories, and joins the 
 ## Stack
 
 - **Vite + TypeScript**, vanilla DOM — no UI framework. `marked` renders markdown; everything else is hand-rolled (the charts and the journey particle field are plain SVG/Canvas, no charting library).
-- A thin **read-only filesystem API** lives under `server/` (`api.ts` dispatches the routes; `fsScan`, `journey`, `jsonl`, `metrics`, and `paths` do the work) and is wired into the Vite **dev and preview** servers as connect middleware (`vite.config.ts`), so the whole app stays **one process**. The browser never touches the filesystem directly; all access goes through `/api/*`.
+- A thin **read-only filesystem API** lives under `server/` (`api.ts` dispatches the routes; `fsScan`, `journey`, `jsonl`, `metrics`, `search`, `words`, and `paths` do the work) and is wired into the Vite **dev and preview** servers as connect middleware (`vite.config.ts`), so the whole app stays **one process**. The browser never touches the filesystem directly; all access goes through `/api/*`.
 
 ![The Repos overview, running on the generated sample corpus](docs/screenshots/repos.png)
 
@@ -58,11 +58,12 @@ There's no on-disk index — the read-only posture rules one out — so a query 
 
 ## Views
 
-Four tabs across the top, plus a per-repo drill-down:
+Five tabs across the top, plus a per-repo drill-down:
 
 - **Repos** (home) — the front page: every crawled repo as a card (git badge, session/message counts, last activity), sorted by recency. A hero strip summarizes the whole corpus (sessions, prompts, est. spend, cache-read tokens, active days) and links into Data Viz. Log projects that match no crawled repo are collected under **"Other Claude Code activity"**.
 - **Data Viz** ("By the Numbers") — the analytics page, computed live from every transcript. It leads with the **agent fleet**: hours on the clock, agents dispatched, time delegated to subagents, a segmented fleet bar, ranked "who gets called" vs. "who does the work" breakdowns by agent type, dispatch cadence, and the longest single main-thread missions. Then pace by day, spend by day, the prompt-cache "iceberg" (log scale), where spend concentrated by project, and a tool-call fingerprint. Cost is estimated at public list prices; agent counts and durations are measured from message timestamps (human idle excluded).
 - **Journey** — a scroll-driven ("scrollytelling") retelling of the whole history: a canvas particle field behind pinned scenes that animate day-one → build-up → scale → spread → the subagent-fleet climax, with animated counters and a chapter rail. Below the scenes sits an interactive **map** — a force-directed project graph (node size = lines typed there, warmth = recency; solid edges = explicit switches, faint dashed = inferred "leaps of faith") and a woven timeline of every project visit, all click-to-inspect. This view is reconstructed from `~/.claude/history.jsonl`, which Claude Code writes *next to* its projects directory. A missing history file isn't an error — the API reports it as a degraded state and the tab renders an explicit empty state naming the exact path it looked for, rather than animating a story made of zeros. The other three tabs read the transcripts directly and work without it.
+- **Words** ("Words That Mattered") — moments where the operator's own phrasing changed the outcome, mined from their corrections (`#/words`, backed by `GET /api/words`). A later user message carrying a correction marker ("that's not what I meant", "typo, I meant…", "I never asked for…") is paired with the nearest earlier substantive prompt — the phrase that got taken the wrong way — with a summary of what the assistant did in between. Entries are bucketed **taken literally / mis-said / overweighted**, and each carries an explicit-vs-inferred confidence badge in the Journey graph's convention: explicit when the correction names the miscommunication outright, inferred when only a weak reversal pattern ("no, …", "wait —") fired. Harness-injected rows (skill expansions, command output, caveats) are filtered out so only typed words qualify.
 - **Profile** ("The User, Observed") — a written, long-form read of the operator behind the transcripts. This is the one tab that is **not** live-computed: it's an essay plus a stat strip frozen at a snapshot date. The view says so out loud — a dated banner, the snapshot's age computed at render time, and a stat strip deliberately styled apart from the live tiles (dashed, unfilled, muted) so it can't be mistaken for current analysis. Re-measuring means bumping `SNAPSHOT_DATE` in `src/views/profile.ts` and rewriting the prose with it.
 - **Repo detail** (click any repo card) — the original browse view: project specs (CLAUDE.md, README, package/pyproject manifests, and the repo's Claude Code `memory/MEMORY.md` index) rendered alongside every session transcript for that repo, each expandable into its parsed user/assistant/tool timeline. The detected stack shows as chips.
 
@@ -81,6 +82,7 @@ Every route is read-only, JSON, and served under `/api/` by `server/api.ts`:
 - `GET /api/metrics?logDir` — the whole-corpus rollup (Data Viz)
 - `GET /api/journey?logDir&days` — the project graph + visit timeline (Journey)
 - `GET /api/search?logDir&q` — full-text search across every transcript, newest-first, capped at 100 results
+- `GET /api/words?logDir` — correction mining for the Words tab, newest-first, capped at 200 entries
 
 `logDir` and `repoRoot` are validated on every route that takes them; see [Security posture](#security-posture).
 
@@ -110,7 +112,7 @@ Spend is estimated from per-message token usage priced at public list rates. Tho
 - a `pricing.json` at the repo root (gitignored, it's operator-local), or
 - `CLAUDE_CODE_LOG_PRICING=/path/to/rates.json`.
 
-Copy `pricing.example.json` to start. Every field is optional, so a file that only sets `opus` overrides only opus; a malformed or unreadable file falls back to the built-in table rather than failing. The table is read once per process, so editing it needs a server restart. The Data Viz caption names which source and effective date produced the numbers you're looking at, so a stale table is visible rather than silent.
+Copy `pricing.example.json` to start. Rates are keyed by model family — `fable` (Fable/Mythos 5), `opus` (Opus 4.5+ and Opus 5), `opus-legacy` (pre-4.5 Opus, so old transcripts still price at what those models actually cost), `sonnet`, `haiku`. Every field is optional, so a file that only sets `opus` overrides only opus; a malformed or unreadable file falls back to the built-in table rather than failing. The table is read once per process, so editing it needs a server restart. The Data Viz caption names which source and effective date produced the numbers you're looking at, so a stale table is visible rather than silent.
 
 ## Security posture
 

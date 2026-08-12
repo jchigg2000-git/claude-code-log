@@ -986,3 +986,61 @@ a.vz-bar-row:hover .vz-bar-label { color: var(--accent); }
   .search-box { width: 130px; }
   .search-box:focus { width: 150px; }
 }
+
+/* ── Words That Mattered ───────────────────────────────────────────────────── */
+.wm-summary { margin: 0 0 12px; }
+.wm-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 0 0 16px; }
+.wm-chip {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.wm-chip:hover { color: var(--text); }
+.wm-chip.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.wm-list { display: flex; flex-direction: column; gap: 12px; }
+.wm-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+.wm-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+.wm-badge, .wm-conf {
+  font-size: 0.7rem;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+.wm-badge.literal { color: var(--accent); border-color: var(--accent); background: var(--accent-soft); }
+.wm-badge.missaid { color: #8fb573; border-color: #4a5a3e; background: #1a2116; }
+.wm-badge.pivot { color: #c47272; border-color: #6b2b2b; background: #211416; }
+.wm-conf.explicit { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.wm-conf.inferred { background: var(--panel-2); color: var(--muted); }
+.wm-meta { margin-left: auto; color: var(--muted); font-size: 0.76rem; white-space: nowrap; }
+.wm-quote {
+  margin: 6px 0;
+  padding: 6px 10px;
+  border-left: 3px solid var(--border);
+  border-radius: 0 6px 6px 0;
+  background: var(--panel-2);
+  font-size: 0.88rem;
+  overflow-wrap: anywhere;
+}
+.wm-quote-label {
+  display: block;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin-bottom: 2px;
+}
+.wm-quote.wm-original { border-left-color: var(--muted); }
+.wm-quote.wm-correction { border-left-color: var(--accent); }
+.wm-quote mark { background: var(--accent-soft); color: var(--accent); border-radius: 3px; padding: 0 2px; }
+.wm-between { color: var(--muted); font-size: 0.78rem; margin: 4px 0 4px 13px; }
+.wm-foot { margin-top: 8px; font-size: 0.8rem; }

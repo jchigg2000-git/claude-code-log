@@ -35,7 +35,7 @@ const RESULT_CAP = 100;
 const SNIPPET_RADIUS = 90;
 
 /** One transcript, with just the metadata a search row needs. */
-interface SearchSession {
+export interface SearchSession {
   file: string;
   id: string;
   mtime: string;
@@ -55,7 +55,7 @@ interface SearchSession {
  * the line-counting scan. Other callers still want the counts, so that
  * function is left alone.
  */
-async function enumerateSessions(logDir: string): Promise<SearchSession[]> {
+export async function enumerateSessions(logDir: string): Promise<SearchSession[]> {
   let dirNames: string[];
   try {
     dirNames = (await readdir(logDir, { withFileTypes: true }))

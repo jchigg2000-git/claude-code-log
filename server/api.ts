@@ -3,6 +3,7 @@ import { buildOverview, buildRepoDetail } from "./fsScan.ts";
 import { buildMetrics } from "./metrics.ts";
 import { buildJourney } from "./journey.ts";
 import { buildSearch } from "./search.ts";
+import { buildWords } from "./words.ts";
 import { parseTranscript } from "./jsonl.ts";
 import { resolveRoot, safeResolveReal } from "./paths.ts";
 
@@ -100,6 +101,13 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
       if (logDir === null) return true;
       const query = url.searchParams.get("q") ?? "";
       send(res, 200, await buildSearch(logDir, query));
+      return true;
+    }
+
+    if (url.pathname === "/api/words") {
+      const logDir = root(res, url, "logDir");
+      if (logDir === null) return true;
+      send(res, 200, await buildWords(logDir));
       return true;
     }
 
