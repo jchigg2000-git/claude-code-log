@@ -271,3 +271,61 @@ test("an unreadable log dir yields empty metrics rather than throwing", async ()
   assert.equal(m.agents.total, 0);
   assert.equal(m.span.days, 0);
 });
+
+test("projects are named from the repo crawl, not by decoding, outside ~/Projects", async () => {
+  // The regression this pins: a repo root not named `Projects` used to fall back
+  // to decoding the directory name and taking its basename, so every hyphenated
+  // repo lost everything before its last dash — `mapkit-demo` rendered `demo`.
+  const repoRoot = await mkdtemp(path.join(os.tmpdir(), "ccl-code-"));
+  for (const repo of ["mapkit-demo", "ferry-scheduler"]) {
+    await mkdir(path.join(repoRoot, repo), { recursive: true });
+  }
+  const enc = (p: string) => path.resolve(p).split(path.sep).join("-");
+  const spend = (tokens: number) =>
+    line({
+      type: "assistant",
+      timestamp: "2026-07-01T10:00:00.000Z",
+      message: {
+        role: "assistant",
+        model: "claude-opus-5",
+        usage: { input_tokens: tokens },
+        content: [{ type: "text", text: "work" }],
+      },
+    });
+
+  const logDir = await corpus({
+    [enc(path.join(repoRoot, "mapkit-demo"))]: { "s1.jsonl": [spend(2_000_000)] },
+    [enc(path.join(repoRoot, "ferry-scheduler"))]: { "s1.jsonl": [spend(1_000_000)] },
+  });
+
+  const named = (await buildMetrics(logDir, repoRoot)).topByCost.map((p) => p.name);
+  assert.deepEqual(named, ["mapkit-demo", "ferry-scheduler"]);
+  assert.ok(!named.includes("demo"), "must not truncate at the last dash");
+});
+
+test("without a repo root, names degrade to verbose but never truncate", async () => {
+  // /api/metrics accepts repoRoot optionally, so an older client still gets a
+  // name — just a coarser one. What it must never get is half a name.
+  const repoRoot = await mkdtemp(path.join(os.tmpdir(), "ccl-code-"));
+  const enc = (p: string) => path.resolve(p).split(path.sep).join("-");
+  const logDir = await corpus({
+    [enc(path.join(repoRoot, "mapkit-demo"))]: {
+      "s1.jsonl": [
+        line({
+          type: "assistant",
+          timestamp: "2026-07-01T10:00:00.000Z",
+          message: {
+            role: "assistant",
+            model: "claude-opus-5",
+            usage: { input_tokens: 1_000_000 },
+            content: [{ type: "text", text: "work" }],
+          },
+        }),
+      ],
+    },
+  });
+
+  const name = (await buildMetrics(logDir)).topByCost[0].name;
+  assert.ok(name.endsWith("mapkit-demo"), `expected the full repo name in ${name}`);
+  assert.notEqual(name, "demo");
+});

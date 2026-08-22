@@ -4,6 +4,27 @@
   "version": "0.1.0",
   "type": "module",
   "description": "Local dashboard for browsing Claude Code history across all your repos.",
+  "license": "MIT",
+  "author": "Justin Higgins",
+  "homepage": "https://github.com/jchigg2000-git/claude-code-log#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jchigg2000-git/claude-code-log.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jchigg2000-git/claude-code-log/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "transcripts",
+    "dashboard",
+    "local-first",
+    "analytics"
+  ],
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite",
     "test": "node --test test/*.test.ts",
@@ -12,6 +33,7 @@
     "preview": "vite preview",
     "fixtures": "node scripts/make-fixtures.mjs",
     "demo": "npm run fixtures && VITE_LOG_DIR=\"$PWD/fixtures/projects\" VITE_REPO_ROOT=\"$PWD/fixtures/repos\" vite",
+    "demo:shots": "CCL_FIXTURES_DIR=/tmp/demo-operator CCL_FIXTURES_REPOS=/tmp/demo-operator/code npm run fixtures && CLAUDE_CODE_LOG_ROOTS=/tmp/demo-operator VITE_LOG_DIR=/tmp/demo-operator/projects VITE_REPO_ROOT=/tmp/demo-operator/code vite",
     "screenshots": "node scripts/make-screenshots.mjs"
   },
   "dependencies": {

@@ -159,3 +159,14 @@ fixtures/
 Thumbs.db
 ehthumbs.db
 desktop.ini
+
+# Agent-harness state. These are the operator's own working files — an agent
+# instruction file, an open-work roadmap, a decision log, and whatever
+# .claude/ accumulates (plans, local settings, worktrees). They are written for
+# one person's harness, and a plan file left in .claude/plans/ carries an
+# execution contract a contributor's agent may try to run against their own
+# checkout. Kept on disk, out of the published tree.
+.claude/
+CLAUDE.md
+ROADMAP.md
+DECISIONS.md

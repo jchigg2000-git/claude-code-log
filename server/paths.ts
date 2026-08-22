@@ -20,8 +20,14 @@ export function expandHome(p: string): string {
  *
  * Encoding (realPath -> dirName) is deterministic and lossless for matching.
  * Decoding (dirName -> realPath) is inherently ambiguous because a path
- * segment can itself contain a dash, so it is BEST-EFFORT and used only for
- * display of log projects that don't map to a crawled repo.
+ * segment can itself contain a dash, so {@link decodeProjectDirApprox} is
+ * BEST-EFFORT and is the LAST resort, never the first.
+ *
+ * Anything that needs a real path or a display name should go through
+ * server/projectNames.ts, which recovers both by encoding paths already known
+ * to be real and matching those. The approximate decode is correct only for a
+ * log directory with no known counterpart — an orphan whose project has moved
+ * or been deleted.
  */
 export function encodeProjectDir(absPath: string): string {
   return path.resolve(absPath).split(path.sep).join("-");

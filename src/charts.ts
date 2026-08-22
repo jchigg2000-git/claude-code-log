@@ -145,7 +145,7 @@ export interface BarRow {
   /** Accent | user | tool — picks the bar color. */
   tone?: "accent" | "user" | "tool" | "muted";
   href?: string;
-  /** Visually group adjacent rows (e.g. the job-search-engine double-spelling). */
+  /** Visually tie this row to its neighbours (e.g. one project under two directory spellings). */
   grouped?: boolean;
 }
 

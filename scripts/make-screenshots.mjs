@@ -25,19 +25,16 @@ import path from "node:path";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const OUT = path.join(REPO, "docs", "screenshots");
+// Must match whatever `npm run demo` / `npm run demo:shots` pointed the server at.
+const FIXTURES = process.env.CCL_FIXTURES_DIR
+  ? path.resolve(process.env.CCL_FIXTURES_DIR)
+  : path.join(REPO, "fixtures");
 const URL_BASE = "http://127.0.0.1:5189";
 const CHROME =
   process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = 9333;
 
-/**
- * width, height, and the readiness probe evaluated in the page.
- *
- * NOTE: the Profile tab is deliberately NOT captured. Its narrative is
- * hardcoded prose about the operator — real project names, a day job, spend
- * figures — so a screenshot of it publishes exactly the private material the
- * sample corpus exists to avoid. Describe that view in prose instead.
- */
+/** width, height, and the readiness probe evaluated in the page. */
 const SHOTS = [
   { name: "repos", route: "/", ready: ".hero-stats, .empty" },
   { name: "dataviz", route: "/viz", ready: ".vz-hero, .error", height: 1500 },
@@ -51,6 +48,7 @@ const SHOTS = [
     scrollTo: ".jn-graph-wrap",
   },
   { name: "search", route: "/search?q=ferry", ready: ".results, .empty, .hint" },
+  { name: "profile", route: "/profile", ready: ".stats.snapshot, .empty, .error", height: 1500 },
 ];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -70,8 +68,10 @@ async function waitForServer() {
 
 async function assertFixtures() {
   const qs = new URLSearchParams({
-    logDir: path.join(REPO, "fixtures", "projects"),
-    repoRoot: path.join(REPO, "fixtures", "repos"),
+    logDir: path.join(FIXTURES, "projects"),
+    repoRoot: process.env.CCL_FIXTURES_REPOS
+      ? path.resolve(process.env.CCL_FIXTURES_REPOS)
+      : path.join(FIXTURES, "repos"),
   });
   const res = await fetch(`${URL_BASE}/api/overview?${qs}`);
   if (!res.ok) return false;
@@ -118,7 +118,7 @@ async function main() {
     process.exit(1);
   }
   if (!(await assertFixtures())) {
-    console.error("The fixture corpus isn't readable — run: npm run fixtures");
+    console.error(`The fixture corpus at ${FIXTURES} isn't readable — run: npm run fixtures`);
     process.exit(1);
   }
 

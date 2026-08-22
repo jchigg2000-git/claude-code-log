@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { decodeProjectDirApprox } from "./paths.ts";
+import { repoKeysFor } from "./fsScan.ts";
+import { resolveProjectName } from "./projectNames.ts";
 import { family, loadPricing } from "./pricing.ts";
 
 /**
@@ -149,18 +150,6 @@ function isScaffold(dirName: string): boolean {
   );
 }
 
-/** Best-effort display name: the path tail at/after the last `Projects` segment. */
-function friendlyName(dirName: string): string {
-  const parts = dirName.split("-").filter(Boolean);
-  const idx = parts.lastIndexOf("Projects");
-  if (idx >= 0) {
-    const tail = parts.slice(idx + 1);
-    return tail.length ? tail.join("-") : "Projects (root)";
-  }
-  const approx = decodeProjectDirApprox(dirName);
-  return path.basename(approx) || dirName;
-}
-
 interface Acc {
   dirName: string;
   name: string;
@@ -196,11 +185,27 @@ function toProjectMetric(a: Acc): ProjectMetric {
 let cache: { key: string; at: number; data: Metrics } | null = null;
 const TTL_MS = 5 * 60 * 1000;
 
-/** Scan every transcript and roll it up. Memoized per logDir for {@link TTL_MS}. */
-export async function buildMetrics(logDir: string): Promise<Metrics> {
-  if (cache && cache.key === logDir && Date.now() - cache.at < TTL_MS) return cache.data;
+/**
+ * Scan every transcript and roll it up. Memoized per (logDir, repoRoot) for
+ * {@link TTL_MS}.
+ *
+ * `repoRoot` is optional and only ever improves display names: with it, every
+ * project is named by matching crawled repo paths against the encoded log
+ * directory (lossless); without it, names fall back to the coarser rungs of
+ * {@link resolveProjectName}. It is part of the cache key because two roots
+ * over the same logDir produce different names for identical numbers.
+ */
+export async function buildMetrics(logDir: string, repoRoot?: string): Promise<Metrics> {
+  const cacheKey = `${logDir}::${repoRoot ?? ""}`;
+  if (cache && cache.key === cacheKey && Date.now() - cache.at < TTL_MS) return cache.data;
 
   const pricing = await loadPricing();
+
+  // Cheap next to the transcript scan below: ~30 readdir + ~180 stat for a
+  // 94-entry root, and it only reads directory metadata. crawlRepos swallows
+  // its own errors, so an unreadable or missing root yields [] and the naming
+  // ladder simply drops to its lower rungs.
+  const repoKeys = await repoKeysFor(repoRoot);
 
   let dirNames: string[];
   let scanned = true;
@@ -250,7 +255,7 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
 
     const a: Acc = {
       dirName,
-      name: friendlyName(dirName),
+      name: resolveProjectName(dirName, repoKeys, repoRoot),
       scaffold,
       sessions: 0,
       lines: 0,
@@ -559,6 +564,6 @@ export async function buildMetrics(logDir: string): Promise<Metrics> {
     pricing: { source: pricing.source, effective: pricing.effective },
   };
 
-  if (scanned) cache = { key: logDir, at: Date.now(), data };
+  if (scanned) cache = { key: cacheKey, at: Date.now(), data };
   return data;
 }

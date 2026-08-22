@@ -35,6 +35,27 @@ function root(res: ServerResponse, url: URL, param: "logDir" | "repoRoot"): stri
 }
 
 /**
+ * Same containment as {@link root}, for a param a route can work without.
+ *
+ * Returns `undefined` when the caller omitted it — that is not an error, it
+ * just costs precision (see {@link resolveProjectName}'s lower rungs). Returns
+ * `null`, having already sent a 400, when the caller supplied one that fails
+ * containment: a bad root is still a bad root, and silently ignoring it would
+ * be a worse surprise than rejecting it.
+ *
+ * Callers read as `const r = optionalRoot(...); if (r === null) return true;`.
+ */
+function optionalRoot(
+  res: ServerResponse,
+  url: URL,
+  param: "logDir" | "repoRoot",
+): string | undefined | null {
+  const raw = url.searchParams.get(param);
+  if (raw === null || !raw.trim()) return undefined;
+  return root(res, url, param);
+}
+
+/**
  * Dispatch `/api/*` routes. Returns true if the request was handled (so the
  * caller can fall through to the static/dev server otherwise).
  *
@@ -83,7 +104,9 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     if (url.pathname === "/api/metrics") {
       const logDir = root(res, url, "logDir");
       if (logDir === null) return true;
-      send(res, 200, await buildMetrics(logDir));
+      const repoRoot = optionalRoot(res, url, "repoRoot");
+      if (repoRoot === null) return true;
+      send(res, 200, await buildMetrics(logDir, repoRoot));
       return true;
     }
 
@@ -99,15 +122,19 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     if (url.pathname === "/api/search") {
       const logDir = root(res, url, "logDir");
       if (logDir === null) return true;
+      const repoRoot = optionalRoot(res, url, "repoRoot");
+      if (repoRoot === null) return true;
       const query = url.searchParams.get("q") ?? "";
-      send(res, 200, await buildSearch(logDir, query));
+      send(res, 200, await buildSearch(logDir, query, repoRoot));
       return true;
     }
 
     if (url.pathname === "/api/words") {
       const logDir = root(res, url, "logDir");
       if (logDir === null) return true;
-      send(res, 200, await buildWords(logDir));
+      const repoRoot = optionalRoot(res, url, "repoRoot");
+      if (repoRoot === null) return true;
+      send(res, 200, await buildWords(logDir, repoRoot));
       return true;
     }
 

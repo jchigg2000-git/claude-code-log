@@ -2,6 +2,8 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import type { TimelineEvent } from "./jsonl.ts";
 import { decodeProjectDirApprox } from "./paths.ts";
+import { repoKeysFor } from "./fsScan.ts";
+import { resolveProjectPath } from "./projectNames.ts";
 import { peekSearchable, putSearchable, type SearchableEvent } from "./transcriptCache.ts";
 
 export interface SearchMatch {
@@ -180,7 +182,11 @@ function makeSnippet(text: string, needle: string): string {
  * There is deliberately no on-disk index: this app's read-only filesystem
  * posture is load-bearing, and it never writes outside its own repo.
  */
-export async function buildSearch(logDir: string, rawQuery: string): Promise<SearchResults> {
+export async function buildSearch(
+  logDir: string,
+  rawQuery: string,
+  repoRoot?: string,
+): Promise<SearchResults> {
   const query = rawQuery.trim();
   if (query.length < MIN_QUERY) {
     return { query, sessionsSearched: 0, matchedSessions: 0, truncated: false, results: [] };
@@ -192,6 +198,11 @@ export async function buildSearch(logDir: string, rawQuery: string): Promise<Sea
   // whatever happened to sort first.
   const items = await getSessionsCached(logDir);
   const ordered = [...items].sort((a, b) => b.mtime.localeCompare(a.mtime));
+
+  // Resolved here rather than inside enumerateSessions so the expensive
+  // enumeration memo stays keyed on logDir alone: changing the repo root must
+  // not invalidate a scan of the transcripts, only the paths we print for them.
+  const repoKeys = await repoKeysFor(repoRoot);
 
   const results: SearchMatch[] = [];
   let sessionsSearched = 0;
@@ -230,7 +241,7 @@ export async function buildSearch(logDir: string, rawQuery: string): Promise<Sea
         file: session.file,
         sessionId: session.id,
         dirName: session.dirName,
-        approxPath: session.approxPath,
+        approxPath: repoKeys.length ? resolveProjectPath(session.dirName, repoKeys) : session.approxPath,
         mtime: session.mtime,
         kind: first.kind,
         tool: first.tool,

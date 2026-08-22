@@ -31,10 +31,10 @@ function filesystemApi(): Plugin {
 // so it must never be reachable off this machine — pinned explicitly rather
 // than left to Vite's default, which a stray `--host` or config change flips.
 const HOST = "127.0.0.1";
-// Port pinned to the local port registry (a port registry: 5189). strictPort
-// makes a collision fail loudly instead of silently drifting onto Vite's default
-// 5173 (where a stale side-project PWA service worker still squats the origin).
-// `preview` reuses 5189 rather than claiming a second registry entry on 4173 —
+// Pinned to an uncommon port with strictPort, so a collision fails loudly at
+// startup instead of silently drifting onto Vite's default 5173 — an origin
+// other local dev servers reuse, where a stale service worker from a different
+// app can end up serving this one. `preview` deliberately reuses the same port;
 // dev and preview are never run at the same time.
 const PORT = 5189;
 

@@ -1,6 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { parseTranscriptText, type TimelineEvent } from "./jsonl.ts";
 import { enumerateSessions, type SearchSession } from "./search.ts";
+import { repoKeysFor } from "./fsScan.ts";
+import { resolveProjectPath } from "./projectNames.ts";
 
 /**
  * "Words That Mattered" — mine every transcript for moments where the user's
@@ -251,8 +253,14 @@ export function clearWordsCache(): void {
   cache = null;
 }
 
-export async function buildWords(logDir: string): Promise<WordsResults> {
-  if (cache && cache.key === logDir && Date.now() - cache.at < TTL_MS) return cache.data;
+export async function buildWords(logDir: string, repoRoot?: string): Promise<WordsResults> {
+  const cacheKey = `${logDir}::${repoRoot ?? ""}`;
+  if (cache && cache.key === cacheKey && Date.now() - cache.at < TTL_MS) return cache.data;
+
+  // Same lossless path recovery as search: the encoded log dir name alone can't
+  // be split back into a real path, but a crawled repo's encoded path can be
+  // matched against it exactly.
+  const repoKeys = await repoKeysFor(repoRoot);
 
   const sessions = [...(await enumerateSessions(logDir))].sort((a, b) => b.mtime.localeCompare(a.mtime));
 
@@ -273,8 +281,10 @@ export async function buildWords(logDir: string): Promise<WordsResults> {
     if (mined.matches === 0) continue;
     matchedSessions++;
     totalMatches += mined.matches;
+    // One resolution per session — every entry mined from it shares a dirName.
+    const shown = repoKeys.length ? resolveProjectPath(session.dirName, repoKeys) : session.approxPath;
     for (const e of mined.entries) {
-      if (entries.length < RESULT_CAP) entries.push(e);
+      if (entries.length < RESULT_CAP) entries.push(shown === e.approxPath ? e : { ...e, approxPath: shown });
     }
   }
 
@@ -288,6 +298,6 @@ export async function buildWords(logDir: string): Promise<WordsResults> {
     entries,
   };
   // Never memoize an empty/unreadable corpus — same caution as search's memo.
-  if (data.sessionsScanned > 0) cache = { key: logDir, at: Date.now(), data };
+  if (data.sessionsScanned > 0) cache = { key: cacheKey, at: Date.now(), data };
   return data;
 }

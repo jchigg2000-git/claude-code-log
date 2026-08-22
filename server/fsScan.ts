@@ -2,6 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { countLines } from "./jsonl.ts";
 import { encodeProjectDir, decodeProjectDirApprox } from "./paths.ts";
+import { buildRepoKeys, matchRepo, type RepoKey } from "./projectNames.ts";
 
 export interface SessionMeta {
   id: string;
@@ -132,15 +133,17 @@ export async function crawlRepos(repoRoot: string): Promise<{ name: string; path
   return [...found.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
 
-/** Attribute a log project to the repo whose encoded path is its longest prefix. */
-function bestRepoFor(dirName: string, repoKeys: { key: string; path: string }[]): string | null {
-  let best: { key: string; path: string } | null = null;
-  for (const r of repoKeys) {
-    if (dirName === r.key || dirName.startsWith(r.key + "-")) {
-      if (!best || r.key.length > best.key.length) best = r;
-    }
-  }
-  return best ? best.path : null;
+/**
+ * Crawl `repoRoot` and encode each repo path, ready for matching against log
+ * directory names. Returns [] when no root is configured, which makes every
+ * consumer's naming ladder degrade instead of failing.
+ *
+ * Lives here rather than in projectNames.ts so that module stays dependency-free
+ * and there is no fsScan <-> projectNames import cycle.
+ */
+export async function repoKeysFor(repoRoot?: string): Promise<RepoKey[]> {
+  if (!repoRoot) return [];
+  return buildRepoKeys(await crawlRepos(repoRoot));
 }
 
 export interface Overview {
@@ -150,12 +153,12 @@ export interface Overview {
 
 export async function buildOverview(logDir: string, repoRoot: string): Promise<Overview> {
   const [logs, repos] = await Promise.all([scanLogProjects(logDir), crawlRepos(repoRoot)]);
-  const repoKeys = repos.map((r) => ({ key: encodeProjectDir(r.path), path: r.path }));
+  const repoKeys = buildRepoKeys(repos);
 
   const byRepo = new Map<string, LogProject[]>();
   const orphans: LogProject[] = [];
   for (const lp of logs) {
-    const repoPath = bestRepoFor(lp.dirName, repoKeys);
+    const repoPath = matchRepo(lp.dirName, repoKeys)?.repo.path ?? null;
     if (repoPath) {
       const arr = byRepo.get(repoPath) ?? [];
       arr.push(lp);

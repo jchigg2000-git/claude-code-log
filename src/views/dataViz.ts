@@ -14,6 +14,42 @@ function statStrip(items: [string, string][]): HTMLElement {
   return strip;
 }
 
+/**
+ * Fold rows that are the same project under more than one directory spelling.
+ * A project that has genuinely lived at both `foo.io` and `foo-io` is two real
+ * directories, so it arrives as two rows whose cost is really one investment.
+ * Key on the name with punctuation removed, and keep siblings adjacent — the
+ * grouped styling only ties *neighbouring* rows.
+ *
+ * Names now arrive resolved against the real repo paths (server/projectNames.ts),
+ * so this only ever folds genuine duplicates. It used to also absorb names the
+ * server had truncated — two unrelated repos could both arrive as `demo` and be
+ * folded into one row — which was papering over that bug rather than this case.
+ * `/` is deliberately NOT stripped, so a repo (`acme/web-app`) never folds into
+ * a subdirectory row (`acme/web-app` under some other repo).
+ */
+function groupNearDuplicates<T extends { name: string }>(
+  rows: T[],
+): { row: T; grouped: boolean }[] {
+  const key = (n: string) => n.toLowerCase().replace(/[.\-_\s]/g, "");
+  const byKey = new Map<string, T[]>();
+  for (const r of rows) {
+    const bucket = byKey.get(key(r.name));
+    if (bucket) bucket.push(r);
+    else byKey.set(key(r.name), [r]);
+  }
+  const out: { row: T; grouped: boolean }[] = [];
+  const emitted = new Set<string>();
+  for (const r of rows) {
+    const k = key(r.name);
+    if (emitted.has(k)) continue;
+    emitted.add(k);
+    const bucket = byKey.get(k)!;
+    for (const member of bucket) out.push({ row: member, grouped: bucket.length > 1 });
+  }
+  return out;
+}
+
 function section(title: string, lede: string, body: HTMLElement): HTMLElement {
   return el(
     "section",
@@ -385,24 +421,29 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
   // ── Where the money went ─────────────────────────────────────────
   const top = m.topByCost.slice(0, 10);
   const topShare = top.slice(0, 5).reduce((s, p) => s + p.cost, 0);
+  const sharePct = t.cost > 0 ? Math.round((topShare / t.cost) * 100) : 0;
+  const ranked = groupNearDuplicates(top);
+  const foldedRows = ranked.filter((r) => r.grouped).length;
   host.append(
     section(
       "Where the spend went",
-      `Heavily concentrated: the top 5 projects are ${
-        t.cost > 0 ? Math.round((topShare / t.cost) * 100) : 0
-      }% of all estimated spend. ` +
-        `job-search-engine and job-search-engine are the same project under two directory spellings — ` +
-        `the flagship investment, split in two by a typo.`,
+      `${sharePct >= 60 ? "Heavily concentrated: the" : "The"} top 5 projects are ` +
+        `${sharePct}% of all estimated spend.` +
+        (foldedRows > 0
+          ? ` ${foldedRows} of the rows below are the same project under more than one ` +
+            `directory spelling, tied together here — the encoded directory name differs, ` +
+            `the work doesn't.`
+          : ""),
       barList(
-        top.map((p) => ({
+        ranked.map(({ row: p, grouped }) => ({
           label: p.name,
           value: p.cost,
           display: money(p.cost),
           sub: `${p.sessions} sessions · ${p.userPrompts} prompts · ${compact(
             p.tokensTotal,
           )} tokens`,
-          tone: p.name.startsWith("job-search-engine") ? "user" : "accent",
-          grouped: p.name.startsWith("job-search-engine"),
+          tone: grouped ? "user" : "accent",
+          grouped,
         })),
       ),
     ),
@@ -412,8 +453,12 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
   host.append(
     section(
       "Tool fingerprint",
-      `${compact(t.toolCalls)} tool calls. The shape of someone who lives at the ` +
-        `command line and runs the model as an orchestrated system, not a chat box.`,
+      `${compact(t.toolCalls)} tool calls` +
+        (m.tools.length
+          ? `, led by ${m.tools[0].name} at ${m.tools[0].count.toLocaleString("en-US")}.`
+          : ".") +
+        ` The mix is the clearest signal of how the model is actually being used — ` +
+        `read-and-edit, shell-driven, or search-heavy.`,
       barList(
         m.tools.map((tool, i) => ({
           label: tool.name,
