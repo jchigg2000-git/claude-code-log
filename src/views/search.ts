@@ -1,6 +1,6 @@
 import { fetchSearch } from "../api.ts";
 import { loadConfig } from "../config.ts";
-import { el, clear, relativeTime } from "../dom.ts";
+import { el, clear, relativeTime, errorBox } from "../dom.ts";
 import type { SearchMatch } from "../types.ts";
 
 const MIN_QUERY = 2;
@@ -100,14 +100,6 @@ export async function renderSearch(host: HTMLElement, query: string): Promise<vo
     host.append(list);
   } catch (err) {
     status.remove();
-    host.append(
-      el(
-        "div",
-        { class: "error" },
-        el("strong", {}, "Search failed. "),
-        err instanceof Error ? err.message : "Unknown error",
-        el("p", { class: "hint" }, "Check the log path in Settings (⚙)."),
-      ),
-    );
+    host.append(errorBox("Search failed. ", err, "Check the log path in Settings (⚙)."));
   }
 }

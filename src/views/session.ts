@@ -1,6 +1,6 @@
 import { fetchSession } from "../api.ts";
 import { loadConfig } from "../config.ts";
-import { el, clear } from "../dom.ts";
+import { el, clear, errorBox } from "../dom.ts";
 import { eventRow } from "./repoDetail.ts";
 
 /**
@@ -25,12 +25,7 @@ export async function renderSession(
     clear(host);
     host.append(
       el("a", { class: "back", href: backHref }, "← Back to results"),
-      el(
-        "div",
-        { class: "error" },
-        el("strong", {}, "Could not load transcript. "),
-        err instanceof Error ? err.message : "Unknown error",
-      ),
+      errorBox("Could not load transcript. ", err),
     );
     return;
   }

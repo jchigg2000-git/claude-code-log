@@ -1,6 +1,6 @@
 import { fetchMetrics } from "../api.ts";
 import { loadConfig } from "../config.ts";
-import { el, clear, renderMarkdown } from "../dom.ts";
+import { el, clear, renderMarkdown, errorBox, statStrip } from "../dom.ts";
 import { compact, money } from "../charts.ts";
 import type { Metrics } from "../types.ts";
 
@@ -73,12 +73,7 @@ function strip(m: Metrics): HTMLElement {
   }
   items.push([`≈ ${money(t.cost)}`, "est. spend"]);
 
-  const row = el("div", { class: "stats snapshot" });
-  for (const [v, l] of items) {
-    row.append(
-      el("div", { class: "stat" }, el("span", { class: "stat-v" }, v), el("span", { class: "stat-l" }, l)),
-    );
-  }
+  const row = statStrip(items);
   if (m.span.last) {
     row.append(el("div", { class: "stat-asof" }, `through ${longDate(m.span.last)}`));
   }
@@ -292,15 +287,7 @@ export async function renderProfile(host: HTMLElement): Promise<void> {
     m = await fetchMetrics(loadConfig());
   } catch (err) {
     status.remove();
-    host.append(
-      el(
-        "div",
-        { class: "error" },
-        el("strong", {}, "Could not read the corpus. "),
-        err instanceof Error ? err.message : "Unknown error",
-        el("p", { class: "hint" }, "Check the log path in Settings (⚙)."),
-      ),
-    );
+    host.append(errorBox("Could not read the corpus. ", err, "Check the log path in Settings (⚙)."));
     return;
   }
   status.remove();

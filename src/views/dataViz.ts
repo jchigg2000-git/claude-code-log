@@ -1,18 +1,8 @@
 import { fetchMetrics } from "../api.ts";
 import { loadConfig } from "../config.ts";
-import { el, clear } from "../dom.ts";
+import { el, clear, errorBox, statStrip } from "../dom.ts";
 import { areaChart, barList, logBars, compact, money } from "../charts.ts";
 import type { Metrics, AgentSummary, MissionStat } from "../types.ts";
-
-function statStrip(items: [string, string][]): HTMLElement {
-  const strip = el("div", { class: "stats snapshot" });
-  for (const [v, l] of items) {
-    strip.append(
-      el("div", { class: "stat" }, el("span", { class: "stat-v" }, v), el("span", { class: "stat-l" }, l)),
-    );
-  }
-  return strip;
-}
 
 /**
  * Fold rows that are the same project under more than one directory spelling.
@@ -290,13 +280,7 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
     clear(host);
     host.append(
       el("a", { class: "back", href: "#/" }, "← All repos"),
-      el(
-        "div",
-        { class: "error" },
-        el("strong", {}, "Could not compute metrics. "),
-        err instanceof Error ? err.message : "Unknown error",
-        el("p", { class: "hint" }, "Check the log path in Settings (⚙)."),
-      ),
+      errorBox("Could not compute metrics. ", err, "Check the log path in Settings (⚙)."),
     );
     return;
   }

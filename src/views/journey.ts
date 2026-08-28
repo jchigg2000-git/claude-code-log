@@ -1,6 +1,6 @@
 import { fetchJourney, fetchMetrics } from "../api.ts";
 import { loadConfig } from "../config.ts";
-import { el, clear, relativeTime } from "../dom.ts";
+import { el, clear, relativeTime, errorBox } from "../dom.ts";
 import { forceGraph, sloppyTimeline, compact, money, type GraphPick } from "../charts.ts";
 import { createJourneyField, type FleetBucket, type SceneId, type VisitSeed } from "./journey-canvas.ts";
 import type { Journey, JourneyEdge, JourneyNode, JourneyVisit, Metrics } from "../types.ts";
@@ -206,13 +206,7 @@ export async function renderJourney(host: HTMLElement): Promise<void> {
     clear(host);
     host.append(
       el("a", { class: "back", href: "#/" }, "← All repos"),
-      el(
-        "div",
-        { class: "error" },
-        el("strong", {}, "Could not reconstruct the journey. "),
-        err instanceof Error ? err.message : "Unknown error",
-        el("p", { class: "hint" }, "Needs ~/.claude/history.jsonl next to the log dir. Check Settings (⚙)."),
-      ),
+      errorBox("Could not reconstruct the journey. ", err, "Needs ~/.claude/history.jsonl next to the log dir. Check Settings (⚙)."),
     );
     return;
   }

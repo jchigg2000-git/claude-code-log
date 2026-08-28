@@ -25,6 +25,37 @@ export function clear(node: HTMLElement): void {
   node.replaceChildren();
 }
 
+/**
+ * The standard failure state. Every view funnels errors through this one
+ * builder so failures look the same everywhere and an improvement (say, a
+ * retry link) lands in every tab at once. `hint` is a plain string for the
+ * common "check Settings" case; pass a ready element when a view needs
+ * something richer (a back-link), or nothing at all.
+ */
+export function errorBox(lead: string, err: unknown, hint?: string | HTMLElement): HTMLElement {
+  const box = el(
+    "div",
+    { class: "error" },
+    el("strong", {}, lead),
+    err instanceof Error ? err.message : "Unknown error",
+  );
+  if (typeof hint === "string") box.append(el("p", { class: "hint" }, hint));
+  else if (hint) box.append(hint);
+  return box;
+}
+
+/** One `.stat` cell (value over label) — the unit statStrip composes. */
+export function stat(value: string | number, label: string): HTMLElement {
+  return el("div", { class: "stat" }, el("span", { class: "stat-v" }, String(value)), el("span", { class: "stat-l" }, label));
+}
+
+/** A row of stat cells — the `.stats.snapshot` strip the analytics tabs share. */
+export function statStrip(items: [string, string][]): HTMLElement {
+  const strip = el("div", { class: "stats snapshot" });
+  for (const [v, l] of items) strip.append(stat(v, l));
+  return strip;
+}
+
 export function relativeTime(iso: string | null): string {
   if (!iso) return "never";
   const then = new Date(iso).getTime();

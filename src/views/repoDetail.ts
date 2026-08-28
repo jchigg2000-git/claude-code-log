@@ -1,6 +1,6 @@
 import { fetchRepo, fetchSession } from "../api.ts";
 import { loadConfig } from "../config.ts";
-import { el, clear, relativeTime, renderMarkdown } from "../dom.ts";
+import { el, clear, relativeTime, renderMarkdown, errorBox } from "../dom.ts";
 import type { RepoDetail, SpecDoc, SessionMeta, TimelineEvent } from "../types.ts";
 
 function specBlock(s: SpecDoc): HTMLElement {
@@ -60,15 +60,7 @@ export async function renderRepoDetail(host: HTMLElement, repoPath: string, name
     data = await fetchRepo(loadConfig(), repoPath, name);
   } catch (err) {
     clear(host);
-    host.append(
-      el(
-        "div",
-        { class: "error" },
-        el("strong", {}, "Could not load repo. "),
-        err instanceof Error ? err.message : "Unknown error",
-        el("p", {}, el("a", { href: "#/" }, "← Back to overview")),
-      ),
-    );
+    host.append(errorBox("Could not load repo. ", err, el("p", {}, el("a", { href: "#/" }, "← Back to overview"))));
     return;
   }
 

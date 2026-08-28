@@ -1,6 +1,6 @@
 import { fetchOverview, fetchMetrics } from "../api.ts";
 import { loadConfig } from "../config.ts";
-import { el, clear, relativeTime } from "../dom.ts";
+import { el, clear, relativeTime, errorBox, stat } from "../dom.ts";
 import { areaChart, compact, money } from "../charts.ts";
 import type { RepoSummary, OrphanLog, Metrics } from "../types.ts";
 
@@ -34,10 +34,6 @@ function populateHero(hero: HTMLElement, m: Metrics): void {
   );
 }
 
-function stat(label: string, value: string | number): HTMLElement {
-  return el("div", { class: "stat" }, el("span", { class: "stat-v" }, String(value)), el("span", { class: "stat-l" }, label));
-}
-
 function repoCard(r: RepoSummary): HTMLElement {
   const href = `#/repo?path=${encodeURIComponent(r.path)}&name=${encodeURIComponent(r.name)}`;
   const inactive = r.sessionCount === 0;
@@ -54,9 +50,9 @@ function repoCard(r: RepoSummary): HTMLElement {
     el(
       "div",
       { class: "stats" },
-      stat("sessions", r.sessionCount),
-      stat("messages", r.messageCount || "—"),
-      stat("last", relativeTime(r.lastActivity)),
+      stat(r.sessionCount, "sessions"),
+      stat(r.messageCount || "—", "messages"),
+      stat(relativeTime(r.lastActivity), "last"),
     ),
   );
 }
@@ -134,14 +130,6 @@ export async function renderOverview(host: HTMLElement): Promise<void> {
     }
   } catch (err) {
     clear(host);
-    host.append(
-      el(
-        "div",
-        { class: "error" },
-        el("strong", {}, "Could not load data. "),
-        err instanceof Error ? err.message : "Unknown error",
-        el("p", { class: "hint" }, "Check the paths in Settings (⚙)."),
-      ),
-    );
+    host.append(errorBox("Could not load data. ", err, "Check the paths in Settings (⚙)."));
   }
 }

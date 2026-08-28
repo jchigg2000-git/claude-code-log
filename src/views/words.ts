@@ -1,6 +1,6 @@
 import { fetchWords } from "../api.ts";
 import { loadConfig } from "../config.ts";
-import { el, clear, relativeTime } from "../dom.ts";
+import { el, clear, relativeTime, errorBox } from "../dom.ts";
 import type { WordCategory, WordEntry } from "../types.ts";
 
 const CATEGORY_LABEL: Record<WordCategory, string> = {
@@ -143,14 +143,6 @@ export async function renderWords(host: HTMLElement): Promise<void> {
     renderList();
   } catch (err) {
     status.remove();
-    host.append(
-      el(
-        "div",
-        { class: "error" },
-        el("strong", {}, "Mining failed. "),
-        err instanceof Error ? err.message : "Unknown error",
-        el("p", { class: "hint" }, "Check the log path in Settings (⚙)."),
-      ),
-    );
+    host.append(errorBox("Mining failed. ", err, "Check the log path in Settings (⚙)."));
   }
 }
