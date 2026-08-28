@@ -11,6 +11,10 @@ function send(res: ServerResponse, status: number, body: unknown): void {
   const json = JSON.stringify(body);
   res.statusCode = status;
   res.setHeader("Content-Type", "application/json");
+  // Bodies carry attacker-influenced text (transcript content, repo README
+  // bytes); nosniff stops a legacy sniffer reinterpreting a directly-navigated
+  // /api URL as HTML.
+  res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("Cache-Control", "no-store");
   res.end(json);
 }
@@ -94,6 +98,15 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
 
   if (!hostAllowed(req.headers.host)) {
     send(res, 403, { error: "/api is loopback-only; cross-host requests are rejected" });
+    return true;
+  }
+
+  // Every route is a read; the GET-only posture is a stated invariant, so
+  // enforce it rather than leaving other verbs to fall through to the same
+  // handlers.
+  if (req.method !== "GET" && req.method !== "HEAD") {
+    res.setHeader("Allow", "GET, HEAD");
+    send(res, 405, { error: "the API is read-only; only GET and HEAD are allowed" });
     return true;
   }
 

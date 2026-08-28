@@ -4,16 +4,24 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 
 import { handleApi } from "../server/api.ts";
 
-function req(url: string, host?: string): IncomingMessage {
-  return { url, method: "GET", headers: host === undefined ? {} : { host } } as unknown as IncomingMessage;
+function req(url: string, host?: string, method = "GET"): IncomingMessage {
+  return { url, method, headers: host === undefined ? {} : { host } } as unknown as IncomingMessage;
 }
 
-/** Capture status + JSON body the way handleApi's send() writes them. */
-function res(): { res: ServerResponse; status: () => number; body: () => unknown } {
+/** Capture status, headers and JSON body the way handleApi's send() writes them. */
+function res(): {
+  res: ServerResponse;
+  status: () => number;
+  body: () => unknown;
+  header: (name: string) => string | undefined;
+} {
   let status = 0;
   let raw = "";
+  const headers = new Map<string, string>();
   const stub = {
-    setHeader() {},
+    setHeader(name: string, value: string) {
+      headers.set(name.toLowerCase(), value);
+    },
     end(chunk: string) {
       raw = chunk;
     },
@@ -25,6 +33,7 @@ function res(): { res: ServerResponse; status: () => number; body: () => unknown
     res: stub as unknown as ServerResponse,
     status: () => status,
     body: () => JSON.parse(raw),
+    header: (name) => headers.get(name.toLowerCase()),
   };
 }
 
@@ -49,4 +58,19 @@ test("non-/api paths are left for the dev server regardless of host", async () =
   const r = res();
   assert.equal(await handleApi(req("/", "evil.example.com"), r.res), false);
   assert.equal(r.status(), 0, "no response should have been written");
+});
+
+test("write verbs get 405 with an Allow header — the API is read-only", async () => {
+  for (const method of ["POST", "PUT", "DELETE", "PATCH"]) {
+    const r = res();
+    assert.equal(await handleApi(req("/api/health", "127.0.0.1:5189", method), r.res), true);
+    assert.equal(r.status(), 405, `${method} should be rejected`);
+    assert.equal(r.header("Allow"), "GET, HEAD");
+  }
+});
+
+test("responses carry X-Content-Type-Options: nosniff", async () => {
+  const r = res();
+  await handleApi(req("/api/health", "127.0.0.1:5189"), r.res);
+  assert.equal(r.header("X-Content-Type-Options"), "nosniff");
 });
