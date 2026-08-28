@@ -35,6 +35,12 @@ const MIN_QUERY = 2;
 const RESULT_CAP = 100;
 /** Characters of context to keep on each side of the first match in a snippet. */
 const SNIPPET_RADIUS = 90;
+/**
+ * How many transcripts the cold read+prefilter pass has in flight at once.
+ * 8-way keeps an SSD's queue busy without turning a query into an I/O storm on
+ * a machine that is also compiling and running the dev server.
+ */
+const READ_CONCURRENCY = 8;
 
 /** One transcript, with just the metadata a search row needs. */
 export interface SearchSession {
@@ -208,46 +214,61 @@ export async function buildSearch(
   let sessionsSearched = 0;
   let matchedSessions = 0;
 
-  for (const session of ordered) {
-    sessionsSearched++;
+  // Read + prefilter is I/O-bound and was strictly serial, so a cache-cold
+  // query paid the whole corpus one file at a time. Sessions are processed in
+  // fixed chunks of READ_CONCURRENCY: the chunk's reads run concurrently, but
+  // outcomes are folded in chunk order, so the newest-first RESULT_CAP
+  // semantics stay byte-for-byte deterministic.
+  for (let i = 0; i < ordered.length; i += READ_CONCURRENCY) {
+    const chunk = ordered.slice(i, i + READ_CONCURRENCY);
+    const outcomes = await Promise.all(
+      chunk.map(async (session): Promise<{ matchCount: number; first: SearchableEvent } | null> => {
+        let events = peekSearchable(session.file, session.mtimeMs, session.size);
+        if (!events) {
+          let raw: string;
+          try {
+            raw = await readFile(session.file, "utf8");
+          } catch {
+            return null; // deleted mid-scan / unreadable — skip, same as before
+          }
+          // Cheap reject before the expensive parse. A raw hit can still be a false
+          // positive (it may live in a JSON key or a field we don't surface), which
+          // the real match loop below then discards — that stays correct.
+          if (probe && !probe.test(raw)) return null;
+          events = putSearchable(session.file, session.mtimeMs, session.size, raw);
+        }
 
-    let events = peekSearchable(session.file, session.mtimeMs, session.size);
-    if (!events) {
-      let raw: string;
-      try {
-        raw = await readFile(session.file, "utf8");
-      } catch {
-        continue; // deleted mid-scan / unreadable — skip, same as before
-      }
-      // Cheap reject before the expensive parse. A raw hit can still be a false
-      // positive (it may live in a JSON key or a field we don't surface), which
-      // the real match loop below then discards — that stays correct.
-      if (probe && !probe.test(raw)) continue;
-      events = putSearchable(session.file, session.mtimeMs, session.size, raw);
-    }
+        let matchCount = 0;
+        let first: SearchableEvent | null = null;
+        for (const ev of events) {
+          if (ev.textLower.includes(needle)) {
+            matchCount++;
+            if (!first) first = ev;
+          }
+        }
+        return first ? { matchCount, first } : null;
+      }),
+    );
 
-    let matchCount = 0;
-    let first: SearchableEvent | null = null;
-    for (const ev of events) {
-      if (ev.textLower.includes(needle)) {
-        matchCount++;
-        if (!first) first = ev;
+    sessionsSearched += chunk.length;
+    for (let j = 0; j < chunk.length; j++) {
+      const out = outcomes[j];
+      if (!out) continue;
+      const session = chunk[j];
+      matchedSessions++;
+      if (results.length < RESULT_CAP) {
+        results.push({
+          file: session.file,
+          sessionId: session.id,
+          dirName: session.dirName,
+          approxPath: repoKeys.length ? resolveProjectPath(session.dirName, repoKeys) : session.approxPath,
+          mtime: session.mtime,
+          kind: out.first.kind,
+          tool: out.first.tool,
+          snippet: makeSnippet(out.first.text, needle),
+          matchCount: out.matchCount,
+        });
       }
-    }
-    if (matchCount === 0 || !first) continue;
-    matchedSessions++;
-    if (results.length < RESULT_CAP) {
-      results.push({
-        file: session.file,
-        sessionId: session.id,
-        dirName: session.dirName,
-        approxPath: repoKeys.length ? resolveProjectPath(session.dirName, repoKeys) : session.approxPath,
-        mtime: session.mtime,
-        kind: first.kind,
-        tool: first.tool,
-        snippet: makeSnippet(first.text, needle),
-        matchCount,
-      });
     }
   }
 
