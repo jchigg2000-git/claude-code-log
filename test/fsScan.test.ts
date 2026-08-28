@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, appendFile, utimes } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { scanLogProjects, buildRepoDetail } from "../server/fsScan.ts";
+import { scanLogProjects, buildRepoDetail, clearLineCountCache } from "../server/fsScan.ts";
 import { encodeProjectDir } from "../server/paths.ts";
 
 const line = JSON.stringify({ type: "user", message: { role: "user", content: "hi" } });
@@ -33,6 +33,33 @@ test("scanLogProjects dirFilter skips non-matching project dirs before reading",
   assert.equal(filtered.length, 1);
   assert.equal(filtered[0].dirName, "-Users-me-Projects-beta");
   assert.equal(filtered[0].sessions.length, 2);
+});
+
+test("line counts are memoized on mtime+size and invalidated on growth", async () => {
+  clearLineCountCache();
+  const logDir = await corpus({ "-Users-me-Projects-alpha": [] });
+  const file = path.join(logDir, "-Users-me-Projects-alpha", "s1.jsonl");
+  // Pin a whole-ms mtime before each scan: the filesystem may keep sub-ms
+  // precision, so "restore the original stat mtime" would not round-trip.
+  const pinned = new Date(1700000000000);
+  await writeFile(file, "aaa\nbbb"); // 7 bytes, 2 lines
+  await utimes(file, pinned, pinned);
+
+  const first = await scanLogProjects(logDir);
+  assert.equal(first[0].sessions[0].messageCount, 2);
+
+  // Same size, same mtime, different line count: a cache hit must serve the
+  // memoized 2, proving the bytes were not re-read. (Real transcripts are
+  // append-only, so this content swap can't happen outside a test.)
+  await writeFile(file, "a\nb\ncc\n"); // 7 bytes, 3 lines
+  await utimes(file, pinned, pinned);
+  const second = await scanLogProjects(logDir);
+  assert.equal(second[0].sessions[0].messageCount, 2, "unchanged mtime+size must hit the cache");
+
+  // Growth changes size (and mtime), so the entry is stale and gets recounted.
+  await appendFile(file, "ddd\n");
+  const third = await scanLogProjects(logDir);
+  assert.equal(third[0].sessions[0].messageCount, 4);
 });
 
 test("buildRepoDetail attributes exact-match and worktree-suffix dirs, nothing else", async () => {

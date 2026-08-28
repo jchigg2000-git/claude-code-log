@@ -44,6 +44,23 @@ export interface RepoDetail extends RepoSummary {
 const SIZE_CAP = 50 * 1024 * 1024; // skip line-counting absurdly large logs
 const SKIP_DIRS = new Set(["node_modules", ".git", ".venv", "venv", "dist", "build"]);
 
+/**
+ * Per-file message-count memo. Counting lines is the only reason
+ * scanLogProjects reads transcript bytes at all, and /api/overview reruns the
+ * scan on every landing-page visit — on a multi-GB corpus that is seconds of
+ * re-reading unchanged files. Transcripts are append-only (the invariant
+ * transcriptCache.ts documents), so `mtimeMs` + `size` are a sound staleness
+ * key: a rescan reads only files that are new or have grown, and the rest of
+ * the scan is readdir + stat. Entries are ~a hundred bytes, so even a
+ * 100k-file corpus holds a few MB — no eviction needed.
+ */
+const lineCountCache = new Map<string, { mtimeMs: number; size: number; count: number }>();
+
+/** Drop every cached line count. Exposed for tests. */
+export function clearLineCountCache(): void {
+  lineCountCache.clear();
+}
+
 async function listDirs(dir: string): Promise<string[]> {
   try {
     const entries = await readdir(dir, { withFileTypes: true });
@@ -98,10 +115,16 @@ export async function scanLogProjects(
       }
       let count = -1;
       if (st.size <= SIZE_CAP) {
-        try {
-          count = countLines(await readFile(full, "utf8"));
-        } catch {
-          count = -1;
+        const cached = lineCountCache.get(full);
+        if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
+          count = cached.count;
+        } else {
+          try {
+            count = countLines(await readFile(full, "utf8"));
+            lineCountCache.set(full, { mtimeMs: st.mtimeMs, size: st.size, count });
+          } catch {
+            count = -1;
+          }
         }
       }
       const mtime = st.mtime.toISOString();
