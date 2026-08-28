@@ -194,7 +194,6 @@ export interface Metrics {
   models: { model: string; tokens: number }[];
   tools: { name: string; count: number }[];
   topByCost: ProjectMetric[];
-  harvest: ProjectMetric[];
   self: ProjectMetric | null;
   agents: AgentSummary;
   engagement: { workingSeconds: number; gapCapSeconds: number };

@@ -103,7 +103,6 @@ export interface Metrics {
   models: { model: string; tokens: number }[];
   tools: { name: string; count: number }[];
   topByCost: ProjectMetric[];
-  harvest: ProjectMetric[];
   self: ProjectMetric | null;
   agents: AgentSummary;
   /**
@@ -153,7 +152,6 @@ function isScaffold(dirName: string): boolean {
 interface Acc {
   dirName: string;
   name: string;
-  scaffold: boolean;
   sessions: number;
   lines: number;
   userPrompts: number;
@@ -256,7 +254,6 @@ export async function buildMetrics(logDir: string, repoRoot?: string): Promise<M
     const a: Acc = {
       dirName,
       name: resolveProjectName(dirName, repoKeys, repoRoot),
-      scaffold,
       sessions: 0,
       lines: 0,
       userPrompts: 0,
@@ -554,9 +551,6 @@ export async function buildMetrics(logDir: string, repoRoot?: string): Promise<M
       .sort((x, y) => y.count - x.count)
       .slice(0, 14),
     topByCost: sortedByCost.slice(0, 12),
-    harvest: sortedByCost
-      .filter((p) => p.dirName.toLowerCase().includes("harvest"))
-      .sort((x, y) => (x.first ?? "").localeCompare(y.first ?? "")),
     self: sortedByCost.find((p) => p.dirName.includes("claude-code-log")) ?? null,
     agents,
     engagement: { workingSeconds: Math.round(workingSec), gapCapSeconds: WORK_CAP_SEC },
