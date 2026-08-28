@@ -149,6 +149,34 @@ function isScaffold(dirName: string): boolean {
   );
 }
 
+/**
+ * Classify one `user` line: is it a real human prompt (vs a tool_result
+ * carrier), and if so, its raw text blocks. Engagement tracking and prompt
+ * accounting both need this test; the blocks come back unjoined because the
+ * two consumers deliberately join differently (" " for turn-opening text,
+ * "" for character counts) and that difference must stay call-site-explicit.
+ * A line with no content at all still counts as human — only a tool_result
+ * demotes it — which preserves the turn/gap semantics exactly.
+ */
+function humanPrompt(msg: Record<string, unknown> | null): { isHuman: boolean; parts: string[] } {
+  const c = msg?.content;
+  if (typeof c === "string") return { isHuman: true, parts: [c] };
+  if (Array.isArray(c)) {
+    const isToolRes = c.some((b) => b && typeof b === "object" && (b as { type?: string }).type === "tool_result");
+    if (isToolRes) return { isHuman: false, parts: [] };
+    return {
+      isHuman: true,
+      parts: c
+        .filter(
+          (b): b is { type: string; text: string } =>
+            !!b && typeof b === "object" && (b as { type?: string }).type === "text",
+        )
+        .map((b) => b.text),
+    };
+  }
+  return { isHuman: true, parts: [] };
+}
+
 interface Acc {
   dirName: string;
   name: string;
@@ -328,26 +356,13 @@ export async function buildMetrics(logDir: string, repoRoot?: string): Promise<M
         // their wall-clock already shows up as the tool-result gap on the main
         // thread). Count generation + tool-execution gaps; skip the gap before a
         // real human prompt (that gap is the human thinking, not Claude working).
+        // Computed once per line; engagement tracking here and the prompt
+        // accounting further down both consume it.
+        const prompt = type === "user" ? humanPrompt(msg) : null;
+
         if (ts && o.isSidechain !== true && (type === "user" || type === "assistant")) {
-          let isHumanPrompt = false;
-          let promptTxt = "";
-          if (type === "user") {
-            const c = msg?.content;
-            const isToolRes =
-              Array.isArray(c) &&
-              c.some((b) => b && typeof b === "object" && (b as { type?: string }).type === "tool_result");
-            isHumanPrompt = !isToolRes;
-            if (isHumanPrompt) {
-              if (typeof c === "string") promptTxt = c;
-              else if (Array.isArray(c)) {
-                promptTxt = c
-                  .filter((b): b is { type: string; text: string } =>
-                    !!b && typeof b === "object" && (b as { type?: string }).type === "text")
-                  .map((b) => b.text)
-                  .join(" ");
-              }
-            }
-          }
+          const isHumanPrompt = prompt?.isHuman ?? false;
+          const promptTxt = prompt?.isHuman ? prompt.parts.join(" ") : "";
           if (prevMainTs) {
             const gap = (Date.parse(ts) - Date.parse(prevMainTs)) / 1000;
             if (gap > 0 && !isHumanPrompt) {
@@ -383,25 +398,8 @@ export async function buildMetrics(logDir: string, repoRoot?: string): Promise<M
           }
         }
 
-        if (type === "user" && msg) {
-          const content = msg.content;
-          let txt = "";
-          if (typeof content === "string") {
-            txt = content;
-          } else if (Array.isArray(content)) {
-            const isToolResult = content.some(
-              (b) => b && typeof b === "object" && (b as { type?: string }).type === "tool_result",
-            );
-            if (!isToolResult) {
-              txt = content
-                .filter(
-                  (b): b is { type: string; text: string } =>
-                    !!b && typeof b === "object" && (b as { type?: string }).type === "text",
-                )
-                .map((b) => b.text)
-                .join("");
-            }
-          }
+        if (prompt && msg) {
+          const txt = prompt.isHuman ? prompt.parts.join("") : "";
           if (txt.trim()) {
             a.userPrompts++;
             promptChars += txt.length;
