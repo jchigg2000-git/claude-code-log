@@ -56,6 +56,28 @@ function optionalRoot(
 }
 
 /**
+ * Loopback-host gate for `/api/*`. The connect middleware in vite.config.ts is
+ * installed inside `configureServer`/`configurePreviewServer`, which Vite runs
+ * BEFORE its own DNS-rebinding host check — so that check never covers these
+ * routes. Without this gate, a malicious page can rebind its own DNS name to
+ * 127.0.0.1:5189 and read the whole transcript corpus as "same-origin".
+ * Legitimate traffic always arrives as 127.0.0.1:5189 (host + strictPort are
+ * pinned in vite.config.ts), so the allowlist stays this small.
+ */
+function hostAllowed(hostHeader: string | undefined): boolean {
+  if (!hostHeader) return false;
+  let hostname: string;
+  try {
+    ({ hostname } = new URL(`http://${hostHeader}`));
+  } catch {
+    return false;
+  }
+  return (
+    hostname === "127.0.0.1" || hostname === "localhost" || hostname === "[::1]" || hostname === "::1"
+  );
+}
+
+/**
  * Dispatch `/api/*` routes. Returns true if the request was handled (so the
  * caller can fall through to the static/dev server otherwise).
  *
@@ -69,6 +91,11 @@ function optionalRoot(
 export async function handleApi(req: IncomingMessage, res: ServerResponse): Promise<boolean> {
   const url = new URL(req.url ?? "/", "http://localhost");
   if (!url.pathname.startsWith("/api/")) return false;
+
+  if (!hostAllowed(req.headers.host)) {
+    send(res, 403, { error: "/api is loopback-only; cross-host requests are rejected" });
+    return true;
+  }
 
   try {
     if (url.pathname === "/api/health") {
