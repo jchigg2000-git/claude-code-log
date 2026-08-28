@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { countLines } from "./jsonl.ts";
-import { encodeProjectDir, decodeProjectDirApprox } from "./paths.ts";
+import { encodeProjectDir, decodeProjectDirApprox, safeResolveReal } from "./paths.ts";
 import { buildRepoKeys, matchRepo, type RepoKey } from "./projectNames.ts";
 
 export interface SessionMeta {
@@ -229,9 +229,25 @@ export async function buildOverview(logDir: string, repoRoot: string): Promise<O
   };
 }
 
-async function readSpec(file: string, name: string, kind: SpecDoc["kind"]): Promise<SpecDoc | null> {
+/**
+ * Read one spec doc, refusing to follow a symlink out of `base`. /api/repo
+ * validates the repo *directory*, but a checked-out repo can itself contain a
+ * symlink named README.md pointing at ~/.ssh keys or /etc/passwd — a bare
+ * readFile would render those bytes as a spec and serve them over the API.
+ * Containment mirrors the API's file rule: the real target must stay inside
+ * the directory the caller was allowed to read. The cost is deliberate: a
+ * legitimately symlinked spec (dotfiles-style CLAUDE.md) is skipped too.
+ */
+async function readSpec(
+  base: string,
+  file: string,
+  name: string,
+  kind: SpecDoc["kind"],
+): Promise<SpecDoc | null> {
   try {
-    const content = await readFile(file, "utf8");
+    const contained = await safeResolveReal(base, file);
+    if (!contained) return null;
+    const content = await readFile(contained, "utf8");
     return { name, kind, content };
   } catch {
     return null;
@@ -245,7 +261,7 @@ async function detectStack(repoPath: string): Promise<{ stack: string[]; pkgSpec
   const pkgPath = path.join(repoPath, "package.json");
   if (await exists(pkgPath)) {
     stack.push("Node / JavaScript");
-    pkgSpec = await readSpec(pkgPath, "package.json", "json");
+    pkgSpec = await readSpec(repoPath, pkgPath, "package.json", "json");
     try {
       const pkg = JSON.parse((pkgSpec?.content ?? "{}") || "{}");
       const deps = { ...(pkg.dependencies ?? {}), ...(pkg.devDependencies ?? {}) };
@@ -285,11 +301,11 @@ export async function buildRepoDetail(
   const hasGit = await exists(path.join(repoPath, ".git"));
   const specs: SpecDoc[] = [];
 
-  const claudeMd = await readSpec(path.join(repoPath, "CLAUDE.md"), "CLAUDE.md", "markdown");
+  const claudeMd = await readSpec(repoPath, path.join(repoPath, "CLAUDE.md"), "CLAUDE.md", "markdown");
   if (claudeMd) specs.push(claudeMd);
 
   for (const readme of ["README.md", "README", "README.txt", "readme.md"]) {
-    const doc = await readSpec(path.join(repoPath, readme), readme, readme.toLowerCase().endsWith(".md") || readme === "README" ? "markdown" : "text");
+    const doc = await readSpec(repoPath, path.join(repoPath, readme), readme, readme.toLowerCase().endsWith(".md") || readme === "README" ? "markdown" : "text");
     if (doc) {
       specs.push(doc);
       break;
@@ -299,12 +315,12 @@ export async function buildRepoDetail(
   const { stack, pkgSpec } = await detectStack(repoPath);
   if (pkgSpec) specs.push(pkgSpec);
 
-  const pyproject = await readSpec(path.join(repoPath, "pyproject.toml"), "pyproject.toml", "text");
+  const pyproject = await readSpec(repoPath, path.join(repoPath, "pyproject.toml"), "pyproject.toml", "text");
   if (pyproject) specs.push(pyproject);
 
   // Claude Code memory index for this repo, if present.
   const memPath = path.join(logDir, encodeProjectDir(repoPath), "memory", "MEMORY.md");
-  const mem = await readSpec(memPath, "memory/MEMORY.md", "markdown");
+  const mem = await readSpec(logDir, memPath, "memory/MEMORY.md", "markdown");
   if (mem) specs.push(mem);
 
   // Sessions attributed to this repo. The dir-name match runs as a scan

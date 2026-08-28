@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile, appendFile, utimes } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, appendFile, utimes, symlink } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -60,6 +60,23 @@ test("line counts are memoized on mtime+size and invalidated on growth", async (
   await appendFile(file, "ddd\n");
   const third = await scanLogProjects(logDir);
   assert.equal(third[0].sessions[0].messageCount, 4);
+});
+
+test("spec reads refuse symlinks that escape the repo", async () => {
+  const outside = await mkdtemp(path.join(os.tmpdir(), "ccl-outside-"));
+  const secret = path.join(outside, "secret.txt");
+  await writeFile(secret, "PRIVATE KEY MATERIAL");
+
+  const repo = await mkdtemp(path.join(os.tmpdir(), "ccl-repo-"));
+  await writeFile(path.join(repo, "CLAUDE.md"), "# real spec");
+  await symlink(secret, path.join(repo, "README.md"));
+
+  const logDir = await mkdtemp(path.join(os.tmpdir(), "ccl-emptylogs-"));
+  const detail = await buildRepoDetail(repo, "repo", logDir);
+  const names = detail.specs.map((s) => s.name);
+  assert.ok(names.includes("CLAUDE.md"), "regular spec files are still read");
+  assert.ok(!names.includes("README.md"), "symlinked README escaping the repo must be skipped");
+  assert.ok(!detail.specs.some((s) => s.content.includes("PRIVATE")), "escaped bytes must never be served");
 });
 
 test("buildRepoDetail attributes exact-match and worktree-suffix dirs, nothing else", async () => {
