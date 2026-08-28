@@ -19,8 +19,19 @@ export function money(n: number): string {
   return "$" + Math.round(n).toLocaleString("en-US");
 }
 
-function esc(s: string): string {
-  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+/**
+ * The module's only XSS guard for innerHTML-built SVG. Every call site today
+ * interpolates into element content, where `&<>` would suffice — quotes are
+ * escaped anyway so the first future interpolation into an attribute position
+ * doesn't quietly become an injection primitive.
+ */
+export function esc(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 function shortDate(iso: string): string {
