@@ -62,12 +62,20 @@ async function exists(p: string): Promise<boolean> {
   }
 }
 
-/** Read every Claude Code project directory and its `.jsonl` transcripts. */
-export async function scanLogProjects(logDir: string): Promise<LogProject[]> {
+/**
+ * Read Claude Code project directories and their `.jsonl` transcripts.
+ * `dirFilter` is applied to the directory name before any transcript is read,
+ * so callers that want one project pay for one project, not the corpus.
+ */
+export async function scanLogProjects(
+  logDir: string,
+  dirFilter?: (dirName: string) => boolean,
+): Promise<LogProject[]> {
   const dirNames = await listDirs(logDir);
   const projects: LogProject[] = [];
 
   for (const dirName of dirNames) {
+    if (dirFilter && !dirFilter(dirName)) continue;
     const projDir = path.join(logDir, dirName);
     let files: string[];
     try {
@@ -276,18 +284,17 @@ export async function buildRepoDetail(
   const mem = await readSpec(memPath, "memory/MEMORY.md", "markdown");
   if (mem) specs.push(mem);
 
-  // Sessions attributed to this repo.
-  const logs = await scanLogProjects(logDir);
+  // Sessions attributed to this repo. The dir-name match runs as a scan
+  // filter, so only this repo's project dirs are ever read.
   const key = encodeProjectDir(repoPath);
+  const logs = await scanLogProjects(logDir, (d) => d === key || d.startsWith(key + "-"));
   const sessions: SessionMeta[] = [];
   let messageCount = 0;
   let lastActivity: string | null = null;
   for (const lp of logs) {
-    if (lp.dirName === key || lp.dirName.startsWith(key + "-")) {
-      sessions.push(...lp.sessions);
-      messageCount += Math.max(0, lp.messageCount);
-      if (lp.lastActivity && (!lastActivity || lp.lastActivity > lastActivity)) lastActivity = lp.lastActivity;
-    }
+    sessions.push(...lp.sessions);
+    messageCount += Math.max(0, lp.messageCount);
+    if (lp.lastActivity && (!lastActivity || lp.lastActivity > lastActivity)) lastActivity = lp.lastActivity;
   }
   sessions.sort((a, b) => b.mtime.localeCompare(a.mtime));
 
