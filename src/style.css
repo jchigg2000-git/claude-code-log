@@ -3,6 +3,7 @@
   --panel: #171a21;
   --panel-2: #1d212b;
   --border: #2a2f3a;
+  --bar-muted: #646c7c;
   --text: #e6e8ec;
   --muted: #8b93a3;
   --accent: #c98a3c;
@@ -10,6 +11,7 @@
   --user: #5aa9e6;
   --tool: #b072d6;
   --radius: 10px;
+  color-scheme: dark; /* hard-dark theme — keep UA scrollbars/controls dark on light-mode OSes */
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
 
@@ -419,7 +421,9 @@ a.vz-bar-row:hover .vz-bar-label { color: var(--accent); }
 .vz-bar-fill.tone-accent { background: linear-gradient(90deg, var(--accent-soft), var(--accent)); }
 .vz-bar-fill.tone-user { background: linear-gradient(90deg, #1c3247, var(--user)); }
 .vz-bar-fill.tone-tool { background: linear-gradient(90deg, #2e1f3b, var(--tool)); }
-.vz-bar-fill.tone-muted { background: var(--border); }
+/* Dedicated token, not --border: the track is --panel-2 and border-on-panel-2 is
+   ~1.2:1 — an invisible bar. --bar-muted sits ~3:1: visible, still the quiet one. */
+.vz-bar-fill.tone-muted { background: var(--bar-muted); }
 
 /* ── Agent fleet block (Data Viz headline) ─────────────────────────── */
 .vz-agentry { position: relative; }

@@ -79,6 +79,63 @@ interface AreaOpts {
   last?: string;
 }
 
+/** A peak-label candidate in viewBox coordinates, before collision resolution. */
+export interface PeakLabelCandidate {
+  /** Text-anchor x (already nudged inward for start/end anchors). */
+  x: number;
+  /** Text baseline y — carried for rendering; collisions are horizontal-only. */
+  y: number;
+  text: string;
+  /** Larger wins a collision — callers pass the peak's value. */
+  priority: number;
+  anchor: "start" | "middle" | "end";
+}
+
+/** Average glyph width of a `.vz-peak` label (13px sans, weight 600) in
+ * viewBox units. Estimated, not measured: the SVG is built as a string, so
+ * there is no layout to ask — and an over-estimate only drops a label early. */
+const PEAK_CHAR_W = 7.2;
+
+/** Estimated rendered width of a peak label, in viewBox units. */
+export function peakLabelWidth(text: string, charW = PEAK_CHAR_W): number {
+  return text.length * charW;
+}
+
+/** Horizontal [left, right] span of a candidate's box given its text-anchor. */
+function labelSpan(c: PeakLabelCandidate, charW: number): [number, number] {
+  const w = peakLabelWidth(c.text, charW);
+  if (c.anchor === "start") return [c.x, c.x + w];
+  if (c.anchor === "end") return [c.x - w, c.x];
+  return [c.x - w / 2, c.x + w / 2];
+}
+
+/**
+ * Collision pass for peak labels: when two labels' estimated boxes would
+ * overlap horizontally (top-N peaks landing on adjacent days), keep the
+ * higher-priority one and DROP the other — the dropped peak keeps its dot,
+ * and omission reads better than nudging text around the chart. Vertical
+ * position is ignored on purpose: peaks close enough to collide sit at
+ * similar heights anyway, and horizontal-only is the conservative call.
+ * Pure: returns the kept subset of `candidates`, in input order.
+ */
+export function resolvePeakLabels<T extends PeakLabelCandidate>(
+  candidates: T[],
+  opts: { charW?: number; gap?: number } = {},
+): T[] {
+  const charW = opts.charW ?? PEAK_CHAR_W;
+  const gap = opts.gap ?? 6;
+  const kept: T[] = [];
+  for (const c of [...candidates].sort((a, b) => b.priority - a.priority)) {
+    const [l0, r0] = labelSpan(c, charW);
+    const clear = kept.every((k) => {
+      const [l1, r1] = labelSpan(k, charW);
+      return r0 + gap <= l1 || l0 >= r1 + gap;
+    });
+    if (clear) kept.push(c);
+  }
+  return candidates.filter((c) => kept.includes(c));
+}
+
 /** Daily activity as a filled area + line, peaks annotated. */
 export function areaChart(
   series: { date: string; value: number }[],
@@ -105,18 +162,33 @@ export function areaChart(
     : [];
   const fmt = opts.fmt ?? compact;
 
-  const dots = peakIdx
-    .map((i) => {
-      const cx = x(i);
-      const cy = y(series[i].value);
-      const label = `${shortDate(series[i].date)} · ${fmt(series[i].value)}`;
-      const anchor = cx > W - 160 ? "end" : cx < 160 ? "start" : "middle";
-      const lx = anchor === "end" ? cx - 6 : anchor === "start" ? cx + 6 : cx;
-      const text = opts.bare
-        ? ""
-        : `<text x="${lx.toFixed(1)}" y="${(cy - 9).toFixed(
-            1,
-          )}" text-anchor="${anchor}" class="vz-peak">${esc(label)}</text>`;
+  // Every peak keeps its dot; the text labels first go through the collision
+  // pass so adjacent-day peaks don't render overlapping captions.
+  const cands = peakIdx.map((i) => {
+    const cx = x(i);
+    const anchor: PeakLabelCandidate["anchor"] =
+      cx > W - 160 ? "end" : cx < 160 ? "start" : "middle";
+    return {
+      i,
+      x: anchor === "end" ? cx - 6 : anchor === "start" ? cx + 6 : cx,
+      y: y(series[i].value) - 9,
+      text: `${shortDate(series[i].date)} · ${fmt(series[i].value)}`,
+      priority: series[i].value,
+      anchor,
+    };
+  });
+  const labelled = new Set(resolvePeakLabels(cands).map((c) => c.i));
+
+  const dots = cands
+    .map((c) => {
+      const cx = x(c.i);
+      const cy = y(series[c.i].value);
+      const text =
+        opts.bare || !labelled.has(c.i)
+          ? ""
+          : `<text x="${c.x.toFixed(1)}" y="${c.y.toFixed(
+              1,
+            )}" text-anchor="${c.anchor}" class="vz-peak">${esc(c.text)}</text>`;
       return `<circle class="vz-dot" cx="${cx.toFixed(1)}" cy="${cy.toFixed(1)}" r="3.5"/>${text}`;
     })
     .join("");
