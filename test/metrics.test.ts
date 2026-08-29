@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, appendFile, utimes } from "node:fs/promises"
 import os from "node:os";
 import path from "node:path";
 
-import { buildMetrics, clearMetricsCache, clearMetricsFileCache } from "../server/metrics.ts";
+import { buildMetrics, clearMetricsCache, clearMetricsFileCache, isScaffold } from "../server/metrics.ts";
 import { DEFAULT_PRICING, family } from "../server/pricing.ts";
 
 const line = (o: unknown) => JSON.stringify(o);
@@ -383,4 +383,25 @@ test("without a repo root, names degrade to verbose but never truncate", async (
   assert.ok(p.name.endsWith("mapkit-demo"), `expected the full repo name in ${p.name}`);
   assert.notEqual(p.name, "demo");
   assert.equal(p.repoPath, null, "no crawl means no match — the row must not invent a link target");
+});
+
+// ── isScaffold — what counts as a throwaway dir ──
+// The rule is deliberately narrow and location-based. It once carried two
+// hardcoded project names, which both leaked a private repo name into a public
+// file and made the policy unpredictable; these pin the replacement.
+
+test("agent worktrees and realpath'd macOS temp dirs are scaffold", () => {
+  assert.equal(isScaffold("-private-var-folders-8q-abc-T-ccl-run"), true);
+  assert.equal(isScaffold("-Users-me-Projects-claude-worktrees-feature-x"), true);
+});
+
+test("an ordinary repo is never scaffold", () => {
+  assert.equal(isScaffold("-Users-me-Projects-mapkit-demo"), false);
+  assert.equal(isScaffold("-Users-me-code-ferry-scheduler"), false);
+});
+
+test("a corpus hosted under the system temp dir still counts", () => {
+  // node:test builds its fixtures here; excluding it would zero out the suite.
+  assert.equal(isScaffold("-var-folders-8q-kzwzt-T-ccl-metrics-abc123"), false);
+  assert.equal(isScaffold("-tmp-demo-operator-projects"), false);
 });

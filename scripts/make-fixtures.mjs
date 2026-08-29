@@ -606,10 +606,22 @@ function buildToolInput(name, repo) {
   }
 }
 
+/** Close a topic off so appending a suffix doesn't produce a run-on sentence. */
+function terminate(topic) {
+  if (/[.?!]$/.test(topic)) return topic;
+  return /^(why|what|when|where|who|how|is|are|does|do|did|can|could|should|would)\b/i.test(topic)
+    ? `${topic}?`
+    : `${topic}.`;
+}
+
 function buildPrompt(topic) {
   const prefixes = ["", "", "", "Hey — ", "Quick one: ", "Following up: ", "One more thing: "];
   const suffixes = ["", "", "", " Can you take a look?", " Let me know what you find.", " Flag if it's bigger than it looks."];
-  return choice(prefixes) + topic + choice(suffixes);
+  // Both draws happen in the original order so the deterministic RNG stream is
+  // unchanged: only the punctuation between them differs.
+  const prefix = choice(prefixes);
+  const suffix = choice(suffixes);
+  return prefix + terminate(topic) + suffix;
 }
 function buildAgentDesc(topic) {
   return choice([

@@ -77,8 +77,8 @@ export interface AgentSummary {
  * One long MAIN-THREAD work turn — a "mission" the human kicked off and Claude
  * then worked for a stretch. Duration is the turn's working time (the same
  * gap-sum as {@link Metrics.engagement}, scoped to one turn). This is the honest
- * "longest single thing that happened" — sub-agent runs (`AgentMission`) cap out
- * at ~25 min, but a main-thread turn can run over an hour.
+ * "longest single thing that happened": a main-thread turn can run far longer
+ * than the sub-agent dispatches it kicks off.
  */
 export interface MissionStat {
   seconds: number;
@@ -147,14 +147,19 @@ function isMissionNoise(s: string): boolean {
  *  pause/anomaly and clamped, so working time tracks active work, not wall-clock. */
 const WORK_CAP_SEC = 600;
 
-/** Throwaway dirs the profile snapshot also excludes: tmp, test scaffolds, worktrees. */
-function isScaffold(dirName: string): boolean {
-  return (
-    dirName.startsWith("-private-") ||
-    dirName.includes("-T-Example") ||
-    dirName.includes("-T-example-project") ||
-    dirName.includes("claude-worktrees")
-  );
+/**
+ * Throwaway dirs the profile snapshot also excludes. Matching is on the encoded
+ * directory name (see server/paths.ts), so these are path fragments with `/`
+ * written as `-`.
+ *
+ * Deliberately narrow. `/private/...` covers a realpath'd macOS `$TMPDIR`, and
+ * `claude-worktrees` covers the throwaway checkouts agents run in. It does NOT
+ * blanket-exclude `/tmp` or an un-realpath'd `/var/folders/...`: a corpus
+ * legitimately hosted under the system temp dir — which is exactly how this
+ * repo's own tests build one — must still count.
+ */
+export function isScaffold(dirName: string): boolean {
+  return dirName.startsWith("-private-") || dirName.includes("claude-worktrees");
 }
 
 /**

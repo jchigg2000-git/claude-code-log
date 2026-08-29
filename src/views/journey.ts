@@ -219,7 +219,7 @@ function renderJourneyEmpty(host: HTMLElement, j: Journey): void {
         { class: "hint" },
         j.historyFound
           ? "Use Claude Code for a bit and it will fill in — the other tabs read the session transcripts and work without this file."
-          : "Claude Code writes history.jsonl next to its projects directory. If your log location is set to a copy or a sample corpus, that file won't be beside it — the other three tabs read the transcripts directly and work regardless.",
+          : "Claude Code writes history.jsonl next to its projects directory. If your log location is set to a copy or a sample corpus, that file won't be beside it — the other tabs read the transcripts directly and work regardless.",
       ),
       el(
         "p",
@@ -273,9 +273,11 @@ function sceneDayOne(j: Journey, days: number): Scene {
       el(
         "p",
         { class: "jny-lede" },
-        `It starts with a single session and a command that doesn't exist yet — `,
-        el("code", {}, j.visits[0]?.opening || "/example-command"),
-        `. No skills, no pipelines, no fleet. Just one person, a blank prompt, and ${days} days ahead.`,
+        `It starts with a single session — `,
+        ...(j.visits[0]?.opening
+          ? [el("code", {}, j.visits[0].opening), `. `]
+          : [`one line typed into a blank prompt. `]),
+        `No skills, no pipelines, no fleet. Just one person, a blank prompt, and ${days} days ahead.`,
       ),
       el("p", { class: "jny-scroll-hint" }, "scroll ↓"),
     ],
@@ -447,8 +449,8 @@ function buildCloser(
       "p",
       {},
       `From `,
-      el("code", {}, j.visits[0]?.opening || "/example-command"),
-      ` on day one to ${intFmt(A.total)} agents and ${money(t.cost)} of estimated model time. ` +
+      el("code", {}, j.visits[0]?.opening || "day one"),
+      ` to ${intFmt(A.total)} agents and ${money(t.cost)} of estimated model time. ` +
         `The latest thing built is this very view — a tool that reads the journey and renders it back. ` +
         `The corpus now contains the map of itself.`,
     ),

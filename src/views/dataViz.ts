@@ -168,10 +168,20 @@ function agentSection(a: AgentSummary, workingHours: number, topMissions: Missio
   );
 
   // Longest missions — the heaviest single MAIN-THREAD turns (one prompt, then
-  // Claude running for a stretch). These dwarf any single sub-agent, which cap
-  // out around 25 min. Each card links into its transcript; `back=viz` routes
+  // Claude running for a stretch). Each card links into its transcript; `back=viz` routes
   // the session view's back link here (sessionBackLink). Same never-a-dead-link
   // rule as barList: no file, no anchor — the card just stays inert.
+  // Compare against the real longest dispatch rather than asserting a ceiling.
+  // Only claim main-thread turns run longer when this corpus actually shows
+  // that; on one where a parallel dispatch outlasts them, the clause drops out
+  // instead of printing a second unsupported number.
+  const longestAgent = a.longest[0]?.seconds ?? 0;
+  const topMission = topMissions[0]?.seconds ?? 0;
+  const vsAgents =
+    longestAgent > 0 && topMission > longestAgent
+      ? ` They run longer than any single sub-agent — the longest of those ran ${dur(longestAgent)}.`
+      : "";
+
   const missions = el("div", { class: "vz-missions" });
   topMissions.forEach((m, i) => {
     missions.append(
@@ -266,8 +276,7 @@ function agentSection(a: AgentSummary, workingHours: number, topMissions: Missio
     el(
       "p",
       { class: "vz-lede" },
-      `One human prompt, then Claude working straight through. These are main-thread turns — ` +
-        `they run far longer than any single sub-agent, which top out near 25 minutes.`,
+      `One human prompt, then Claude working straight through. These are main-thread turns.${vsAgents}`,
     ),
     missions,
     manHours,
@@ -390,12 +399,12 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
   host.append(
     section(
       "The prompt-cache iceberg",
-      `The single most lopsided number in the corpus: ${compact(
-        t.tokCacheRead,
-      )} cache-read tokens against just ${compact(
-        t.tokIn,
-      )} of fresh input — a ${cacheRatio.toLocaleString("en-US")}× ratio. ` +
-        `Almost nothing is paid for at the full input rate; prompt caching is doing the work. (Log scale.)`,
+      `${compact(t.tokCacheRead)} cache-read tokens against ${compact(t.tokIn)} of fresh input — ` +
+        `a ${cacheRatio.toLocaleString("en-US")}× ratio. ` +
+        (cacheRatio >= 2
+          ? `Almost nothing is paid for at the full input rate; prompt caching is doing the work.`
+          : `Cache reads and fresh input are close to parity here, so little of the input cost is absorbed by the cache.`) +
+        ` (Log scale.)`,
       logBars([
         {
           label: "Cache-read tokens",
@@ -490,7 +499,7 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
         {},
         `The largest single prompt in the corpus was `,
         el("strong", {}, `${t.maxPrompt.toLocaleString("en-US")} characters`),
-        ` (~${big}) — an entire corpus pasted into one message. Across everything, ` +
+        ` (~${big}). Across everything, ` +
           `roughly ${compact(t.promptChars)} characters were typed by hand.`,
       ),
       m.self
