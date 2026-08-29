@@ -2,6 +2,8 @@
 
 A local dashboard for browsing **and analyzing** your Claude Code history across every repo on your machine.
 
+> Prefer pictures? [`docs/overview.html`](docs/overview.html) is a one-page visual overview — open it straight from a checkout, no server needed.
+
 It scans your Claude Code session logs, crawls your repositories, and joins the two. From there you can drill into any repo to read its project specs (CLAUDE.md, README, manifests, memory index) alongside the parsed transcripts of every session run there — or step back and see the whole corpus at once: spend, token flow, the subagent fleet, and a scroll-driven retelling of the entire journey.
 
 **Everything stays on your machine.** There is no server to sign into, no account, no telemetry, and no network egress of any kind — the app reads local files and renders them in your browser. It binds to loopback only, and its filesystem access is strictly read-only: nothing is ever written to `~/.claude` or to any repo it crawls.
