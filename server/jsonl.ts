@@ -168,13 +168,6 @@ export function parseTranscriptText(raw: string): TimelineEvent[] {
   return events;
 }
 
-/** Cheap message count: number of non-empty lines. */
-export function countLines(raw: string): number {
-  let n = 0;
-  for (const line of raw.split("\n")) if (line.trim()) n++;
-  return n;
-}
-
 /** Preview length for a session's opening prompt — mirrors MissionStat.opening in metrics.ts. */
 const PREVIEW_CHARS = 90;
 
@@ -198,11 +191,11 @@ function promptText(content: unknown): string {
 }
 
 /**
- * {@link countLines} plus the session's opening human prompt, in one pass.
- * scanLogProjects already reads a transcript's full bytes just to count
- * lines, so the preview rides along at zero extra I/O. Every non-empty line
- * counts (identical semantics to countLines); only a well-formed user line
- * with substantive text can contribute the preview — malformed JSON,
+ * The one counting implementation — the only one — plus
+ * the session's opening human prompt, in one pass. scanLogProjects already
+ * reads a transcript's full bytes just to count lines, so the preview rides
+ * along at zero extra I/O. Every non-empty line counts; only a well-formed
+ * user line with substantive text can contribute the preview — malformed JSON,
  * tool_result carriers, and blank/whitespace prompts are passed over, and
  * the first hit wins.
  */

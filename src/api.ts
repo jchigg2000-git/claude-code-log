@@ -42,8 +42,41 @@ export function invalidateRepo(): void {
   repoCache = null;
 }
 
-export function fetchSession(cfg: AppConfig, file: string): Promise<Session> {
-  return getJSON<Session>(`/api/session?${q({ logDir: cfg.logDir, file })}`);
+/**
+ * Staleness key for one transcript file, from the repo scan's own metadata.
+ * Transcripts are append-only, so mtime + size change exactly when the file
+ * gained events — the same signal the server's line-count memo trusts
+ * (fsScan.ts). Baked into {@link fetchSession}'s cache key, it makes the memo
+ * self-invalidating: the 5-minute refresh re-scans the repo, a grown file
+ * yields a new key, and the transcript refetches with no manual invalidate.
+ */
+export function sessionStaleKey(meta: { mtime: string; sizeBytes: number }): string {
+  return `${meta.mtime}::${meta.sizeBytes}`;
+}
+
+// Same one-entry, evict-on-rejection discipline as fetchRepo: only one
+// transcript is ever open on the repo page, and its data is immutable for as
+// long as the staleKey holds.
+let sessionCache: { key: string; promise: Promise<Session> } | null = null;
+
+/**
+ * `staleKey` (see {@link sessionStaleKey}) opts into the memo: the repo page
+ * passes it so toggling a transcript closed and open again — or re-rendering
+ * on refresh — reuses the already-fetched payload until the file grows. The
+ * standalone #/session view has no scan metadata to key on and stays uncached.
+ */
+export function fetchSession(cfg: AppConfig, file: string, staleKey?: string): Promise<Session> {
+  const url = `/api/session?${q({ logDir: cfg.logDir, file })}`;
+  if (staleKey === undefined) return getJSON<Session>(url);
+  const key = `${cfg.logDir}::${file}::${staleKey}`;
+  if (!sessionCache || sessionCache.key !== key) {
+    const promise = getJSON<Session>(url);
+    promise.catch(() => {
+      if (sessionCache?.promise === promise) sessionCache = null;
+    });
+    sessionCache = { key, promise };
+  }
+  return sessionCache.promise;
 }
 
 export function fetchSearch(cfg: AppConfig, query: string): Promise<SearchResults> {

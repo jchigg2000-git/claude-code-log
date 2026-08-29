@@ -7,7 +7,8 @@
  * Hash for a repo page. `sessionId` opens that transcript inline — the hash
  * is the single source of truth for which session is open, so opening and
  * closing are navigation: Back closes the transcript, and the URL is
- * shareable.
+ * shareable. (navIntent.ts decides which toggles push vs rewrite the current
+ * entry, so browsing many sessions costs one history entry, not two each.)
  */
 export function repoHash(repoPath: string, name: string, sessionId?: string): string {
   const params = new URLSearchParams({ path: repoPath, name });
@@ -56,12 +57,59 @@ export function sessionBackLink(back: string | null, q: string | null): { href: 
  */
 export function sameRepoPage(oldURL: string, newURL: string): boolean {
   const repoKey = (u: string): string | null => {
-    const hash = u.split("#")[1] ?? "";
-    const [pathPart, queryPart] = hash.split("?");
-    if (pathPart !== "/repo") return null;
-    const params = new URLSearchParams(queryPart ?? "");
-    return `${params.get("path")}::${params.get("name")}`;
+    const params = repoParams(u);
+    return params && `${params.get("path")}::${params.get("name")}`;
   };
   const a = repoKey(oldURL);
   return a !== null && a === repoKey(newURL);
+}
+
+/** Parse a full URL's hash as a repo-page hash → its params, or null. */
+function repoParams(u: string): URLSearchParams | null {
+  const hash = u.split("#")[1] ?? "";
+  const [pathPart, queryPart] = hash.split("?");
+  if (pathPart !== "/repo") return null;
+  return new URLSearchParams(queryPart ?? "");
+}
+
+/**
+ * True when a hash navigation just landed on the repo page's PUSHED session
+ * entry: a same-repo transition from the plain page to an open transcript.
+ * That is the only transition after which the history entry directly beneath
+ * the current one is provably this repo's plain page — the precondition for
+ * closing via `history.back()` (see {@link sessionToggleNav}). The page's own
+ * open-push and a Forward re-open both qualify; Back to the plain page,
+ * arrivals from other views, and deep links all clear it.
+ */
+export function sessionEntryAfterNav(oldURL: string, newURL: string): boolean {
+  return (
+    sameRepoPage(oldURL, newURL) &&
+    repoParams(oldURL)?.get("session") == null &&
+    repoParams(newURL)?.get("session") != null
+  );
+}
+
+export type SessionToggleNav = "push" | "replace" | "back";
+
+/**
+ * How a session-toggle click navigates, given whether it opens (vs closes) a
+ * transcript and whether the top history entry is the session entry this page
+ * pushed for a previous open (`sessionEntryLive` — the view maintains it from
+ * {@link sessionEntryAfterNav}). The resulting stack discipline is at most ONE
+ * session entry per repo visit:
+ *
+ * - open from the plain page → "push": Back closes the transcript.
+ * - open while the session entry is live (switching) → "replace": browsing N
+ *   sessions costs one entry, not N; Back still closes, and a second Back
+ *   leaves the repo.
+ * - close while the entry is live → "back": pop the entry the open pushed, so
+ *   the stack never accumulates duplicate plain-repo entries, no Back press is
+ *   left visually dead, and Forward genuinely re-opens the transcript.
+ * - close otherwise (deep-link arrival, cross-page return) → "replace":
+ *   nothing beneath is provably ours, so mutate the entry in place rather than
+ *   stepping `history.back()` toward an unknown one.
+ */
+export function sessionToggleNav(opening: boolean, sessionEntryLive: boolean): SessionToggleNav {
+  if (opening) return sessionEntryLive ? "replace" : "push";
+  return sessionEntryLive ? "back" : "replace";
 }
