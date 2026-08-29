@@ -188,235 +188,201 @@ const FLEET_HEX: [number, number, number][] = [
   [0x5b, 0x64, 0x72],
 ];
 
-let teardown: (() => void) | null = null;
+// ── Empty state ──────────────────────────────────────────────────────────────
 
-export async function renderJourney(host: HTMLElement): Promise<void> {
-  if (teardown) {
-    teardown();
-    teardown = null;
-  }
+/** The "nothing to retell yet" page: history.jsonl missing or empty. */
+function renderJourneyEmpty(host: HTMLElement, j: Journey): void {
   clear(host);
-  host.append(el("p", { class: "loading" }, "Reconstructing the journey from day one…"));
-
-  let j: Journey;
-  let m: Metrics;
-  try {
-    const cfg = loadConfig();
-    [j, m] = await Promise.all([fetchJourney(cfg, WINDOW_DAYS), fetchMetrics(cfg)]);
-  } catch (err) {
-    clear(host);
-    host.append(
-      el("a", { class: "back", href: "#/" }, "← All repos"),
-      errorBox("Could not reconstruct the journey. ", err, "Needs ~/.claude/history.jsonl next to the log dir. Check Settings (⚙)."),
-    );
-    return;
-  }
-
-  // A missing/empty history file is NOT a fetch failure — the server reports it
-  // as an empty journey — so it lands here, not in the catch above. Without this
-  // the whole scrollytelling renders against zeros: a "day one" scene with no
-  // date, empty counters, and a graph with no nodes.
-  if (j.visits.length === 0 || j.nodes.length === 0) {
-    clear(host);
-    host.append(
-      el("a", { class: "back", href: "#/" }, "← All repos"),
+  host.append(
+    el("a", { class: "back", href: "#/" }, "← All repos"),
+    el(
+      "div",
+      { class: "page-head" },
+      el("h1", {}, "Journey"),
+      el("p", { class: "sub" }, "Nothing to retell yet."),
+    ),
+    el(
+      "div",
+      { class: "empty" },
       el(
-        "div",
-        { class: "page-head" },
-        el("h1", {}, "Journey"),
-        el("p", { class: "sub" }, "Nothing to retell yet."),
+        "p",
+        {},
+        j.historyFound
+          ? "Your command history was read, but it holds no project activity in the last " +
+              `${j.windowDays} days.`
+          : "This view is reconstructed from Claude Code's command history, and that file wasn't found.",
+      ),
+      el("code", { class: "path" }, j.historyPath),
+      el(
+        "p",
+        { class: "hint" },
+        j.historyFound
+          ? "Use Claude Code for a bit and it will fill in — the other tabs read the session transcripts and work without this file."
+          : "Claude Code writes history.jsonl next to its projects directory. If your log location is set to a copy or a sample corpus, that file won't be beside it — the other three tabs read the transcripts directly and work regardless.",
       ),
       el(
-        "div",
-        { class: "empty" },
-        el(
-          "p",
-          {},
-          j.historyFound
-            ? "Your command history was read, but it holds no project activity in the last " +
-                `${j.windowDays} days.`
-            : "This view is reconstructed from Claude Code's command history, and that file wasn't found.",
-        ),
-        el("code", { class: "path" }, j.historyPath),
-        el(
-          "p",
-          { class: "hint" },
-          j.historyFound
-            ? "Use Claude Code for a bit and it will fill in — the other tabs read the session transcripts and work without this file."
-            : "Claude Code writes history.jsonl next to its projects directory. If your log location is set to a copy or a sample corpus, that file won't be beside it — the other three tabs read the transcripts directly and work regardless.",
-        ),
-        el(
-          "p",
-          {},
-          el("a", { class: "btn ghost", href: "#/viz" }, "Go to Data Viz"),
-          " ",
-          el("a", { class: "btn ghost", href: "#/" }, "Browse repos"),
-        ),
+        "p",
+        {},
+        el("a", { class: "btn ghost", href: "#/viz" }, "Go to Data Viz"),
+        " ",
+        el("a", { class: "btn ghost", href: "#/" }, "Browse repos"),
       ),
-    );
-    return;
-  }
+    ),
+  );
+}
 
-  clear(host);
+// ── Data prep ────────────────────────────────────────────────────────────────
 
-  // ── Build particle seeds from real visits ──────────────────────────────────
+/** Build particle seeds from real visits. */
+function buildVisitSeeds(j: Journey): VisitSeed[] {
   const firstMs = j.first ? Date.parse(j.first) : Date.now();
   const lastMs = j.last ? Date.parse(j.last) : Date.now();
   const span = Math.max(1, lastMs - firstMs);
   const rankOf = new Map<string, number>();
   j.nodes.forEach((n, i) => rankOf.set(n.id, i));
   const maxCmd = Math.max(1, ...j.visits.map((v) => v.commands));
-  const seeds: VisitSeed[] = j.visits.map((v) => ({
+  return j.visits.map((v) => ({
     t: Math.max(0, Math.min(1, (Date.parse(v.ts) - firstMs) / span)),
     projectRank: rankOf.get(v.project) ?? 99,
     weight: Math.min(1, Math.sqrt(v.commands) / Math.sqrt(maxCmd)),
   }));
+}
 
-  // ── Fleet buckets from measured agent types ────────────────────────────────
-  const A = m.agents;
+/** Fleet buckets from measured agent types. */
+function buildFleetBuckets(A: Metrics["agents"]): FleetBucket[] {
   const topTypes = A.byType.slice(0, 6);
   const otherCount = A.byType.slice(6).reduce((s, t) => s + t.count, 0);
-  const fleetForCanvas: FleetBucket[] = [
+  return [
     ...topTypes.map((t, i) => ({ color: FLEET_HEX[i] ?? FLEET_HEX[6], share: t.count / Math.max(1, A.total) })),
     ...(otherCount > 0 ? [{ color: FLEET_HEX[6], share: otherCount / Math.max(1, A.total) }] : []),
   ];
+}
 
-  // Derived narrative numbers.
-  const days = m.span.days;
-  const t = m.totals;
-  const agentHours = A.totalSeconds / 3600;
-  const workingHours = m.engagement.workingSeconds / 3600;
-  const topProjects = j.nodes.slice(0, 4).map((n) => n.name);
+// ── Scene builders ───────────────────────────────────────────────────────────
 
-  // ── Layout shell ───────────────────────────────────────────────────────────
-  const canvas = el("canvas", { class: "jny-canvas" }) as HTMLCanvasElement;
-  const railBar = el("div", { class: "jny-railbar-fill" });
-  const dots = el("div", { class: "jny-dots" });
-  const rail = el("div", { class: "jny-rail" }, el("div", { class: "jny-railbar" }, railBar), dots);
-
-  const back = el("a", { class: "back jny-back", href: "#/" }, "← All repos");
-
-  // ── Scenes ─────────────────────────────────────────────────────────────────
-  const scenes: Scene[] = [];
-
-  // S0 — Day one.
-  {
-    const s = scene(
-      "seed",
-      "jny-s0",
-      "Day one",
-      j.first ? fullDay(j.first) : "The beginning",
-      "One prompt into the dark.",
-      [
-        el(
-          "p",
-          { class: "jny-lede" },
-          `It starts with a single session and a command that doesn't exist yet — `,
-          el("code", {}, j.visits[0]?.opening || "/example-command"),
-          `. No skills, no pipelines, no fleet. Just one person, a blank prompt, and ${days} days ahead.`,
-        ),
-        el("p", { class: "jny-scroll-hint" }, "scroll ↓"),
-      ],
-    );
-    scenes.push(s);
-  }
-
-  // S1 — Accumulation over time.
-  {
-    const f = figures([
-      { to: days, fmt: intFmt, label: "days" },
-      { to: t.sessions, fmt: intFmt, label: "sessions", accent: true },
-      { to: j.visits.length, fmt: intFmt, label: "project visits" },
-      { to: m.span.activeDays, fmt: intFmt, label: "active days" },
-    ]);
-    const s = scene("accumulate", "jny-s1", "The build-up", "Day 1 → today", "Then it didn't stop.", [
+// S0 — Day one.
+function sceneDayOne(j: Journey, days: number): Scene {
+  return scene(
+    "seed",
+    "jny-s0",
+    "Day one",
+    j.first ? fullDay(j.first) : "The beginning",
+    "One prompt into the dark.",
+    [
       el(
         "p",
         { class: "jny-lede" },
-        `Every dot is one real visit to a project, dropped onto the timeline at the moment it happened. ` +
-          `Watch ${days} days fill in — near-daily, rarely quiet.`,
+        `It starts with a single session and a command that doesn't exist yet — `,
+        el("code", {}, j.visits[0]?.opening || "/example-command"),
+        `. No skills, no pipelines, no fleet. Just one person, a blank prompt, and ${days} days ahead.`,
       ),
-      f.node,
-    ]);
-    s.counts.push(...f.counts);
-    scenes.push(s);
-  }
+      el("p", { class: "jny-scroll-hint" }, "scroll ↓"),
+    ],
+  );
+}
 
-  // S2 — The scale.
-  {
-    const f = figures([
-      { to: t.userPrompts, fmt: intFmt, label: "prompts typed" },
-      { to: t.assistant, fmt: intFmt, label: "assistant turns", accent: true },
-      { to: t.tokOut, fmt: compact, label: "output tokens" },
-      { to: t.tokCacheRead, fmt: compact, label: "cache reads" },
-    ]);
-    const s = scene("cloud", "jny-s2", "The scale", "What that adds up to", "A staggering amount of thinking.", [
+// S1 — Accumulation over time.
+function sceneAccumulation(j: Journey, m: Metrics, days: number): Scene {
+  const f = figures([
+    { to: days, fmt: intFmt, label: "days" },
+    { to: m.totals.sessions, fmt: intFmt, label: "sessions", accent: true },
+    { to: j.visits.length, fmt: intFmt, label: "project visits" },
+    { to: m.span.activeDays, fmt: intFmt, label: "active days" },
+  ]);
+  const s = scene("accumulate", "jny-s1", "The build-up", "Day 1 → today", "Then it didn't stop.", [
+    el(
+      "p",
+      { class: "jny-lede" },
+      `Every dot is one real visit to a project, dropped onto the timeline at the moment it happened. ` +
+        `Watch ${days} days fill in — near-daily, rarely quiet.`,
+    ),
+    f.node,
+  ]);
+  s.counts.push(...f.counts);
+  return s;
+}
+
+// S2 — The scale.
+function sceneScale(t: Metrics["totals"]): Scene {
+  const f = figures([
+    { to: t.userPrompts, fmt: intFmt, label: "prompts typed" },
+    { to: t.assistant, fmt: intFmt, label: "assistant turns", accent: true },
+    { to: t.tokOut, fmt: compact, label: "output tokens" },
+    { to: t.tokCacheRead, fmt: compact, label: "cache reads" },
+  ]);
+  const s = scene("cloud", "jny-s2", "The scale", "What that adds up to", "A staggering amount of thinking.", [
+    el(
+      "p",
+      { class: "jny-lede" },
+      `${intFmt(t.userPrompts)} prompts pulled ${intFmt(t.assistant)} model turns out of the dark — ` +
+        `${compact(t.tokOut)} tokens of output, riding ${compact(t.tokCacheRead)} cache-read tokens. ` +
+        `An estimated ${money(t.cost)} of model time at list rates.`,
+    ),
+    f.node,
+  ]);
+  s.counts.push(...f.counts);
+  return s;
+}
+
+// S3 — Across the work.
+function sceneSpread(j: Journey, t: Metrics["totals"], topProjects: string[]): Scene {
+  const f = figures([
+    { to: t.humanProjects, fmt: intFmt, label: "real projects" },
+    { to: t.toolCalls, fmt: intFmt, label: "tool calls", accent: true },
+    { to: j.totalSwitches, fmt: intFmt, label: "project switches" },
+  ]);
+  const s = scene(
+    "constellation",
+    "jny-s3",
+    "The spread",
+    "Not one project — dozens",
+    "Work pulled into constellations.",
+    [
       el(
         "p",
         { class: "jny-lede" },
-        `${intFmt(t.userPrompts)} prompts pulled ${intFmt(t.assistant)} model turns out of the dark — ` +
-          `${compact(t.tokOut)} tokens of output, riding ${compact(t.tokCacheRead)} cache-read tokens. ` +
-          `An estimated ${money(t.cost)} of model time at list rates.`,
+        `${t.humanProjects} real projects, and the dots gather into the heaviest of them — ` +
+          `${topProjects.join(", ")}. The work jumps between them ${intFmt(j.totalSwitches)} times; ` +
+          `that restlessness is the shape of it.`,
       ),
       f.node,
-    ]);
-    s.counts.push(...f.counts);
-    scenes.push(s);
-  }
+    ],
+  );
+  s.counts.push(...f.counts);
+  return s;
+}
 
-  // S3 — Across the work.
-  {
-    const f = figures([
-      { to: t.humanProjects, fmt: intFmt, label: "real projects" },
-      { to: t.toolCalls, fmt: intFmt, label: "tool calls", accent: true },
-      { to: j.totalSwitches, fmt: intFmt, label: "project switches" },
-    ]);
-    const s = scene(
-      "constellation",
-      "jny-s3",
-      "The spread",
-      "Not one project — dozens",
-      "Work pulled into constellations.",
-      [
-        el(
-          "p",
-          { class: "jny-lede" },
-          `${t.humanProjects} real projects, and the dots gather into the heaviest of them — ` +
-            `${topProjects.join(", ")}. The work jumps between them ${intFmt(j.totalSwitches)} times; ` +
-            `that restlessness is the shape of it.`,
-        ),
-        f.node,
-      ],
-    );
-    s.counts.push(...f.counts);
-    scenes.push(s);
-  }
+// S4 — The fleet (climax).
+function sceneFleet(A: Metrics["agents"], workingHours: number, agentHours: number): Scene {
+  const f = figures([
+    { to: workingHours, fmt: (n) => Math.round(n).toLocaleString("en-US"), label: "hrs on the clock", accent: true },
+    { to: A.total, fmt: intFmt, label: "agents dispatched" },
+    { to: agentHours, fmt: oneDp, label: "hrs via sub-agents" },
+    { to: A.byType.length, fmt: intFmt, label: "agent roles" },
+  ]);
+  const s = scene("fleet", "jny-s4", "The fleet", "The work stopped being solo", "An army, working in parallel.", [
+    el(
+      "p",
+      { class: "jny-lede" },
+      `Claude was on the clock for ${Math.round(workingHours)} measured hours — model generating, ` +
+        `tools and agents executing, human think-time stripped out. The main thread did the bulk; ` +
+        `around it, ${intFmt(A.total)} subagents handled ${oneDp(agentHours)} hours in parallel. ` +
+        `That is the man-hours story: not one operator typing, but a fleet on the clock.`,
+    ),
+    f.node,
+    el("p", { class: "jny-foot" }, "All figures measured from message timestamps; working time excludes human idle (gaps capped at 10 min)."),
+  ]);
+  s.counts.push(...f.counts);
+  return s;
+}
 
-  // S4 — The fleet (climax).
-  {
-    const f = figures([
-      { to: workingHours, fmt: (n) => Math.round(n).toLocaleString("en-US"), label: "hrs on the clock", accent: true },
-      { to: A.total, fmt: intFmt, label: "agents dispatched" },
-      { to: agentHours, fmt: oneDp, label: "hrs via sub-agents" },
-      { to: A.byType.length, fmt: intFmt, label: "agent roles" },
-    ]);
-    const s = scene("fleet", "jny-s4", "The fleet", "The work stopped being solo", "An army, working in parallel.", [
-      el(
-        "p",
-        { class: "jny-lede" },
-        `Claude was on the clock for ${Math.round(workingHours)} measured hours — model generating, ` +
-          `tools and agents executing, human think-time stripped out. The main thread did the bulk; ` +
-          `around it, ${intFmt(A.total)} subagents handled ${oneDp(agentHours)} hours in parallel. ` +
-          `That is the man-hours story: not one operator typing, but a fleet on the clock.`,
-      ),
-      f.node,
-      el("p", { class: "jny-foot" }, "All figures measured from message timestamps; working time excludes human idle (gaps capped at 10 min)."),
-    ]);
-    s.counts.push(...f.counts);
-    scenes.push(s);
-  }
+// ── Interactive map scene (preserved force graph + timeline) ─────────────────
 
-  // ── Interactive map scene (preserved force graph + timeline) ────────────────
+function buildExploreSection(j: Journey): {
+  explore: HTMLElement;
+  resetPanel: () => void;
+  inferredPct: number;
+} {
   const panel = el("div", { class: "jn-detail" });
   panel.append(legend());
   const resetPanel = () => {
@@ -459,9 +425,19 @@ export async function renderJourney(host: HTMLElement): Promise<void> {
       sloppyTimeline(j.visits, { first: j.first, last: j.last, onPick: (v) => renderVisit(panel, v), width: w }),
     ),
   );
+  return { explore, resetPanel, inferredPct };
+}
 
-  // ── Today / closer ──────────────────────────────────────────────────────────
-  const closer = el(
+// ── Today / closer ───────────────────────────────────────────────────────────
+
+function buildCloser(
+  j: Journey,
+  t: Metrics["totals"],
+  A: Metrics["agents"],
+  inferredPct: number,
+  resetPanel: () => void,
+): HTMLElement {
+  return el(
     "section",
     { class: "jny-closer", id: "jny-today" },
     el("p", { class: "jny-kicker" }, j.last ? fullDay(j.last) : "Today"),
@@ -483,13 +459,16 @@ export async function renderJourney(host: HTMLElement): Promise<void> {
     el("button", { class: "btn ghost", onclick: resetPanel }, "Reset inspector"),
     el("a", { class: "btn", href: "#jny-s0" }, "Back to day one ↑"),
   );
+}
 
-  // ── Assemble ────────────────────────────────────────────────────────────────
-  const stage = el("div", { class: "jny-stage" }, canvas);
-  const root = el("div", { class: "jny-root" }, stage, rail, back, ...scenes.map((s) => s.el), explore, closer);
-  host.append(root);
+// ── Chapter dots ─────────────────────────────────────────────────────────────
 
-  // Chapter dots.
+interface Chapter {
+  anchor: string;
+  label: string;
+}
+
+function buildChapterDots(scenes: Scene[], dots: HTMLElement): { chapters: Chapter[]; dotEls: HTMLElement[] } {
   const chapters = [...scenes.map((s) => ({ anchor: s.anchor, label: s.chapter })), { anchor: "jny-map", label: "The map" }, { anchor: "jny-today", label: "Today" }];
   const dotEls = chapters.map((c, i) => {
     const d = el(
@@ -500,8 +479,28 @@ export async function renderJourney(host: HTMLElement): Promise<void> {
     dots.append(d);
     return d;
   });
+  return { chapters, dotEls };
+}
 
-  // ── Canvas + scroll wiring ──────────────────────────────────────────────────
+// ── Canvas + scroll wiring ───────────────────────────────────────────────────
+
+let teardown: (() => void) | null = null;
+
+/** Create the particle field, drive it (plus the rail fill, chapter dots, and
+ *  per-scene counters) from scroll, install the module-level teardown, and
+ *  kick off scene 0. */
+function wireScrollytelling(opts: {
+  canvas: HTMLCanvasElement;
+  seeds: VisitSeed[];
+  fleetForCanvas: FleetBucket[];
+  scenes: Scene[];
+  explore: HTMLElement;
+  closer: HTMLElement;
+  railBar: HTMLElement;
+  chapters: Chapter[];
+  dotEls: HTMLElement[];
+}): void {
+  const { canvas, seeds, fleetForCanvas, scenes, explore, closer, railBar, chapters, dotEls } = opts;
   const field = createJourneyField(canvas, seeds, fleetForCanvas);
   const triggered = new Set<number>();
   let lastActive = -1;
@@ -566,4 +565,80 @@ export async function renderJourney(host: HTMLElement): Promise<void> {
   // Kick off scene 0.
   triggered.add(0);
   onScroll();
+}
+
+// ── The view ─────────────────────────────────────────────────────────────────
+
+export async function renderJourney(host: HTMLElement): Promise<void> {
+  if (teardown) {
+    teardown();
+    teardown = null;
+  }
+  clear(host);
+  host.append(el("p", { class: "loading" }, "Reconstructing the journey from day one…"));
+
+  let j: Journey;
+  let m: Metrics;
+  try {
+    const cfg = loadConfig();
+    [j, m] = await Promise.all([fetchJourney(cfg, WINDOW_DAYS), fetchMetrics(cfg)]);
+  } catch (err) {
+    clear(host);
+    host.append(
+      el("a", { class: "back", href: "#/" }, "← All repos"),
+      errorBox("Could not reconstruct the journey. ", err, "Needs ~/.claude/history.jsonl next to the log dir. Check Settings (⚙)."),
+    );
+    return;
+  }
+
+  // A missing/empty history file is NOT a fetch failure — the server reports it
+  // as an empty journey — so it lands here, not in the catch above. Without this
+  // the whole scrollytelling renders against zeros: a "day one" scene with no
+  // date, empty counters, and a graph with no nodes.
+  if (j.visits.length === 0 || j.nodes.length === 0) {
+    renderJourneyEmpty(host, j);
+    return;
+  }
+
+  clear(host);
+
+  // ── Data prep ──────────────────────────────────────────────────────────────
+  const seeds = buildVisitSeeds(j);
+  const A = m.agents;
+  const fleetForCanvas = buildFleetBuckets(A);
+
+  // Derived narrative numbers.
+  const days = m.span.days;
+  const t = m.totals;
+  const agentHours = A.totalSeconds / 3600;
+  const workingHours = m.engagement.workingSeconds / 3600;
+  const topProjects = j.nodes.slice(0, 4).map((n) => n.name);
+
+  // ── Layout shell ───────────────────────────────────────────────────────────
+  const canvas = el("canvas", { class: "jny-canvas" }) as HTMLCanvasElement;
+  const railBar = el("div", { class: "jny-railbar-fill" });
+  const dots = el("div", { class: "jny-dots" });
+  const rail = el("div", { class: "jny-rail" }, el("div", { class: "jny-railbar" }, railBar), dots);
+
+  const back = el("a", { class: "back jny-back", href: "#/" }, "← All repos");
+
+  // ── Scenes ─────────────────────────────────────────────────────────────────
+  const scenes: Scene[] = [
+    sceneDayOne(j, days),
+    sceneAccumulation(j, m, days),
+    sceneScale(t),
+    sceneSpread(j, t, topProjects),
+    sceneFleet(A, workingHours, agentHours),
+  ];
+
+  const { explore, resetPanel, inferredPct } = buildExploreSection(j);
+  const closer = buildCloser(j, t, A, inferredPct, resetPanel);
+
+  // ── Assemble ────────────────────────────────────────────────────────────────
+  const stage = el("div", { class: "jny-stage" }, canvas);
+  const root = el("div", { class: "jny-root" }, stage, rail, back, ...scenes.map((s) => s.el), explore, closer);
+  host.append(root);
+
+  const { chapters, dotEls } = buildChapterDots(scenes, dots);
+  wireScrollytelling({ canvas, seeds, fleetForCanvas, scenes, explore, closer, railBar, chapters, dotEls });
 }
