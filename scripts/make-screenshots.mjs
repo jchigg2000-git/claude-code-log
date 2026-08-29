@@ -45,7 +45,13 @@ const SHOTS = [
     route: "/journey",
     ready: ".jn-graph-wrap, .empty, .error",
     height: 1100,
-    scrollTo: ".jn-graph-wrap",
+    // Anchor on the whole map SECTION, not the graph box. Centring the graph
+    // left the section's own intro paragraph sliced in half under the sticky
+    // topbar. `start` plus an offset clears the topbar and frames the section
+    // from its heading down.
+    scrollTo: "#jny-map",
+    scrollBlock: "start",
+    scrollOffset: -72,
   },
   { name: "search", route: "/search?q=ferry", ready: ".results, .empty, .hint" },
   { name: "words", route: "/words", ready: ".wm-list, .empty, .error", height: 1100 },
@@ -201,7 +207,10 @@ async function main() {
         await call("Runtime.evaluate", {
           expression:
             `document.querySelector(${JSON.stringify(shot.scrollTo)})` +
-            `?.scrollIntoView({ block: "center" })`,
+            `?.scrollIntoView({ block: ${JSON.stringify(shot.scrollBlock ?? "center")} });` +
+            // The topbar is position:sticky, so `start` parks the anchor under
+            // it. Nudge back by the offset to bring it clear.
+            (shot.scrollOffset ? ` window.scrollBy(0, ${Number(shot.scrollOffset)});` : ""),
         });
         await sleep(1200); // scroll-driven scenes re-render on scroll
       }
