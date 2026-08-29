@@ -34,7 +34,8 @@
     "fixtures": "node scripts/make-fixtures.mjs",
     "demo": "npm run fixtures && D=\"$(pwd -P)\" && CLAUDE_CODE_LOG_ROOTS=\"$D/fixtures\" VITE_LOG_DIR=\"$D/fixtures/projects\" VITE_REPO_ROOT=\"$D/fixtures/repos\" vite",
     "demo:shots": "CCL_FIXTURES_DIR=/tmp/demo-operator CCL_FIXTURES_REPOS=/tmp/demo-operator/code npm run fixtures && CLAUDE_CODE_LOG_ROOTS=/tmp/demo-operator VITE_LOG_DIR=/tmp/demo-operator/projects VITE_REPO_ROOT=/tmp/demo-operator/code vite",
-    "screenshots": "node scripts/make-screenshots.mjs"
+    "screenshots": "node scripts/make-screenshots.mjs",
+    "screenshots:shots": "CCL_FIXTURES_DIR=/tmp/demo-operator CCL_FIXTURES_REPOS=/tmp/demo-operator/code node scripts/make-screenshots.mjs"
   },
   "dependencies": {
     "marked": "^18.0.11"

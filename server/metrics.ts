@@ -152,14 +152,22 @@ const WORK_CAP_SEC = 600;
  * directory name (see server/paths.ts), so these are path fragments with `/`
  * written as `-`.
  *
- * Deliberately narrow. `/private/...` covers a realpath'd macOS `$TMPDIR`, and
- * `claude-worktrees` covers the throwaway checkouts agents run in. It does NOT
- * blanket-exclude `/tmp` or an un-realpath'd `/var/folders/...`: a corpus
- * legitimately hosted under the system temp dir — which is exactly how this
- * repo's own tests build one — must still count.
+ * Deliberately narrow, and matched on SHAPE rather than on any project name.
+ *
+ * `$TMPDIR` on macOS is `/var/folders/<hash>/T/...`, which realpaths to
+ * `/private/var/folders/...` — that is genuinely throwaway. `/tmp` is NOT:
+ * `npm run demo` legitimately hosts its corpus there, and on macOS `/tmp`
+ * realpaths to `/private/tmp`, so excluding `/private/*` wholesale silently
+ * discarded a demo corpus run from a clone under `/tmp`.
+ *
+ * The un-realpath'd `/var/folders/...` form is deliberately NOT excluded: this
+ * repo's own tests build their corpora there via `os.tmpdir()`, and they must
+ * still count.
  */
 export function isScaffold(dirName: string): boolean {
-  return dirName.startsWith("-private-") || dirName.includes("claude-worktrees");
+  return (
+    dirName.startsWith("-private-var-folders-") || dirName.includes("claude-worktrees")
+  );
 }
 
 /**

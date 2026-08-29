@@ -7,8 +7,14 @@
  * private repo names, prompts and spend. The script refuses to run if the
  * fixture corpus isn't readable.
  *
- * Usage:  npm run demo         # terminal 1: generates fixtures, serves :5189
- *         npm run screenshots  # terminal 2
+ * Usage:  npm run demo:shots         # terminal 1
+ *         npm run screenshots:shots # terminal 2
+ *
+ * `demo:shots`, not `demo`: the Repos page renders each repo's ABSOLUTE path on
+ * its card, so a corpus under ./fixtures would put the capturing machine's home
+ * directory into every committed PNG. `demo:shots` builds it under
+ * /tmp/demo-operator instead, and sets CCL_FIXTURES_DIR so this script looks
+ * there too.
  *
  * Drives headless Chrome over the DevTools Protocol rather than using
  * `--screenshot`. That flag needs `--virtual-time-budget` to let the page

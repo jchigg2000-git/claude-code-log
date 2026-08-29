@@ -194,7 +194,7 @@
   <div class="wrap">
     <p class="eyebrow">Five tabs and a search box</p>
     <h2>One corpus, six ways to read it</h2>
-    <p class="sub">The app scans your session logs, crawls your repositories, and joins the two. Each tab is a different question asked of the same corpus.</p>
+    <p class="sub">The app scans your session logs, crawls your repositories, and joins the two. Each view below is a different question asked of the same corpus.</p>
 
     <div class="tab">
       <div class="shot"><img src="screenshots/repos.png" alt="The Repos overview: every repository joined to its sessions" loading="lazy" /></div>
@@ -257,7 +257,7 @@ category: taken literally · confidence: explicit</pre></div>
     <ul class="nevers">
       <li><span class="rule">never writes</span><span class="why">Filesystem access is strictly read-only. Nothing is ever written to ~/.claude or to any repo it crawls.</span></li>
       <li><span class="rule">never leaves loopback</span><span class="why">Pinned to 127.0.0.1:5189, strict port, and the API rejects any request whose Host header isn't loopback — DNS rebinding included.</span></li>
-      <li><span class="rule">never phones home</span><span class="why">No account, no telemetry, no network egress of any kind. This page follows the same rule: no webfonts, no trackers, no CDN.</span></li>
+      <li><span class="rule">never phones home</span><span class="why">No account, no telemetry, and the app makes no outbound requests. Repo READMEs are rendered as markdown, so a remote image in one of yours — a CI badge — is still fetched by your browser. This page follows the stricter rule: no webfonts, no trackers, no CDN.</span></li>
       <li><span class="rule">never invoices you</span><span class="why">Cost figures are estimates from token counts at public list rates. They track real spend closely, but the bill is Anthropic's, not this tool's.</span></li>
       <li><span class="rule">never escapes its roots</span><span class="why">Every path the browser supplies is contained to allowed directories, symlinks resolved and checked — a checked-out repo can't alias your SSH keys into view.</span></li>
     </ul>

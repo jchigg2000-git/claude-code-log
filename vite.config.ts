@@ -38,8 +38,16 @@ const HOST = "127.0.0.1";
 // dev and preview are never run at the same time.
 const PORT = 5189;
 
+// Vite's dev/preview servers default to reflecting any localhost/127.0.0.1
+// Origin back as `Access-Control-Allow-Origin`. That default is fine for a
+// normal app; it is not fine here, because /api/* hands out the full text of
+// every transcript on the machine. With it on, any page served from any other
+// local dev server can read the whole corpus cross-origin. Off means the
+// browser blocks the read, which is the posture the README describes.
+const CORS = false;
+
 export default defineConfig({
   plugins: [filesystemApi()],
-  server: { open: true, host: HOST, port: PORT, strictPort: true },
-  preview: { host: HOST, port: PORT, strictPort: true },
+  server: { open: true, host: HOST, port: PORT, strictPort: true, cors: CORS },
+  preview: { host: HOST, port: PORT, strictPort: true, cors: CORS },
 });

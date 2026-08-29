@@ -451,8 +451,8 @@ function buildCloser(
       `From `,
       el("code", {}, j.visits[0]?.opening || "day one"),
       ` to ${intFmt(A.total)} agents and ${money(t.cost)} of estimated model time. ` +
-        `The latest thing built is this very view — a tool that reads the journey and renders it back. ` +
-        `The corpus now contains the map of itself.`,
+        `Every hop above was reconstructed from the corpus itself — which now contains ` +
+        `the map of itself, since reading it is what drew this.`,
     ),
     el(
       "p",

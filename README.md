@@ -6,7 +6,9 @@ A local dashboard for browsing **and analyzing** your Claude Code history across
 
 It scans your Claude Code session logs, crawls your repositories, and joins the two. From there you can drill into any repo to read its project specs (CLAUDE.md, README, manifests, memory index) alongside the parsed transcripts of every session run there — or step back and see the whole corpus at once: spend, token flow, the subagent fleet, and a scroll-driven retelling of the entire journey.
 
-**Everything stays on your machine.** There is no server to sign into, no account, no telemetry, and no network egress of any kind — the app reads local files and renders them in your browser. It binds to loopback only, and its filesystem access is strictly read-only: nothing is ever written to `~/.claude` or to any repo it crawls.
+**Everything stays on your machine.** There is no server to sign into, no account, and no telemetry — the app reads local files and renders them in your browser. It binds to loopback only, and its filesystem access is strictly read-only: nothing is ever written to `~/.claude` or to any repo it crawls.
+
+The app itself makes no outbound requests. One thing does reach the network, and it is worth naming: repo specs are rendered as markdown, so a README of yours containing a remote image — a CI badge, say — makes your *browser* fetch that image, exactly as it would on any site. The sanitizer allows `http:`/`https:` in `src`/`href` for that reason. If you would rather nothing leave the machine at all, block remote images in your browser for `127.0.0.1:5189`.
 
 ## What this is not
 
@@ -19,7 +21,7 @@ It scans your Claude Code session logs, crawls your repositories, and joins the 
 ## Requirements
 
 - **Node 24+.** The test runner executes TypeScript sources directly (`node --test test/*.test.ts`), which needs native type-stripping; the screenshot script relies on global `fetch` and `WebSocket`.
-- **macOS or Linux.** The `demo` script uses POSIX shell (`$PWD`, inline env assignment), so on Windows use WSL.
+- **macOS or Linux.** The `demo` script uses POSIX shell (`$(pwd -P)`, inline env assignment), so on Windows use WSL.
 - **Google Chrome** — only for `npm run screenshots`. It defaults to the macOS install path; set `CHROME=/path/to/chrome` to point elsewhere.
 - **Something to read.** The app shows you nothing without real Claude Code transcripts under `~/.claude/projects`. If you don't have any — or don't want to look at your own — use `npm run demo`, which generates a synthetic corpus and points the app at it.
 
@@ -53,7 +55,14 @@ The corpus is generated rather than checked in for a structural reason: Claude C
 
 ## Screenshots
 
-All captured against the sample corpus above, never a real `~/.claude`. Regenerate with `npm run demo:shots` in one terminal and `npm run screenshots` in another; the capture script refuses to run if the fixture corpus isn't readable.
+All captured against the sample corpus above, never a real `~/.claude`. Regenerate with two terminals:
+
+```bash
+npm run demo:shots        # terminal 1
+npm run screenshots:shots # terminal 2
+```
+
+Both halves are `:shots` variants because the capture corpus lives under `/tmp/demo-operator`, not `./fixtures`, and the second terminal has to be told where to look. The capture script refuses to run if that corpus isn't readable, or if whatever is answering on the port can't serve it — a stale dev server holding `5189` would otherwise be photographed silently.
 
 Use `demo:shots` rather than `demo` for this: the Repos page renders each repo's **absolute** path on its card, so a corpus built under `./fixtures/` would put the capturing machine's home directory into every committed PNG. `demo:shots` builds the same corpus under `/tmp/demo-operator` instead.
 
@@ -96,7 +105,9 @@ Five tabs across the top, plus a per-repo drill-down:
 
 ## Live refresh
 
-A long-lived tab re-scans the logs on a quiet **5-minute interval** (`src/main.ts`): it drops the cached metrics/journey scans and re-renders the current view in place, scroll preserved — no manual reload. This is plain polling, not a push/filesystem-watch.
+A long-lived tab re-scans the logs on a quiet **5-minute interval** (`src/main.ts`): it drops the cached metrics/journey scans and re-renders the current view, no manual reload. This is plain polling, not a push/filesystem-watch.
+
+The router asks for scroll to be preserved across that refresh, and the repo page manages it — it keeps the old render up while refetching. The analytics views do not: they clear their host and show a loading line first, so the document collapses and the browser clamps scroll to the top. On those pages a refresh will move you.
 
 ## API surface
 
@@ -150,7 +161,7 @@ This is a localhost tool with no auth that reads the filesystem, so the boundari
 - **Loopback only.** Both the dev and preview servers are pinned to `127.0.0.1` in `vite.config.ts`, not left to Vite's default.
 - **Contained roots.** `logDir` and `repoRoot` arrive from the client (they're settings in `localStorage`), so every route validates them: a root outside `$HOME` gets a 400 instead of a directory listing. `CLAUDE_CODE_LOG_ROOTS` (colon-separated) adds roots if you keep repos on another volume.
 - **Contained paths.** The two routes that additionally take a file path check it against the root they were given — and follow symlinks while doing it, so a link inside the root that points outside it is rejected rather than read.
-- **No cross-origin reads.** The `/api/*` middleware emits no `Access-Control-Allow-Origin` header on any route, including preflight, so a page on another origin can issue a request but cannot read the response. Verified by request, not by assumption.
+- **No cross-origin reads.** CORS is pinned **off** on both the dev and preview servers in `vite.config.ts`, so no `Access-Control-Allow-Origin` header is emitted on any route, including preflight — a page on another origin can issue a request but cannot read the response. This is an explicit pin, not a default: Vite reflects *any* `localhost`/`127.0.0.1` origin back by default, which would let a page served by any other local dev server read your whole corpus. Verified by request, not by assumption.
 - **Loopback `Host` gate.** `/api/*` rejects any request whose `Host` isn't `127.0.0.1`, `localhost`, or `[::1]` with a **403**. This is not redundant with binding to loopback: the API is connect middleware installed in `configureServer`/`configurePreviewServer`, which Vite runs *before* its own DNS-rebinding host check, so that check never covers these routes. Without the gate, a page that rebinds its own hostname to `127.0.0.1:5189` would read the whole transcript corpus as same-origin.
 - **Read-only verbs.** Every route is a read, so the middleware enforces it: anything other than `GET`/`HEAD` gets a **405** with an `Allow` header rather than falling through to the same handlers. Responses carry `X-Content-Type-Options: nosniff`.
 - **Sanitized markdown.** Spec files from crawled repos are rendered as HTML, so that HTML is parsed and stripped to an inert subset first (`src/sanitize.ts`): dangerous elements dropped with their subtrees, attributes reduced to an allowlist — which kills every `on*` handler by construction rather than by blocklist — and `href`/`src` limited to `http:`/`https:`/`mailto:` and relative URLs.
@@ -182,7 +193,8 @@ npm run typecheck
 
 Issues and pull requests are welcome. There's no formal process: open an issue
 describing what you hit, or send a PR with `npm run typecheck`, `npm test`, and
-`npm run build` green — CI runs exactly those three on Node 24.
+`npm run build` green — CI runs those three on Node 24, plus `npm audit --omit=dev`
+(production dependencies must be free of high-severity advisories).
 
 This is a personal tool published because it might be useful, not a project
 seeking maintainers, so responses may be slow and features outside the read-only

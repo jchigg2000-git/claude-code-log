@@ -91,7 +91,8 @@ export async function renderOverview(host: HTMLElement): Promise<void> {
         el(
           "p",
           { class: "sub" },
-          `${data.repos.length} repos · ${active} with Claude activity · ${data.orphanLogs.length} unmatched log projects`,
+          `${data.repos.length} repo${data.repos.length === 1 ? "" : "s"} · ${active} with Claude activity · ` +
+            `${data.orphanLogs.length} unmatched log project${data.orphanLogs.length === 1 ? "" : "s"}`,
         ),
       ),
     );

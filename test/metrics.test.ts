@@ -390,9 +390,16 @@ test("without a repo root, names degrade to verbose but never truncate", async (
 // hardcoded project names, which both leaked a private repo name into a public
 // file and made the policy unpredictable; these pin the replacement.
 
-test("agent worktrees and realpath'd macOS temp dirs are scaffold", () => {
+test("agent worktrees and a realpath'd macOS $TMPDIR are scaffold", () => {
   assert.equal(isScaffold("-private-var-folders-8q-abc-T-ccl-run"), true);
   assert.equal(isScaffold("-Users-me-Projects-claude-worktrees-feature-x"), true);
+});
+
+test("/tmp is not scaffold — `npm run demo` hosts its corpus there", () => {
+  // On macOS /tmp realpaths to /private/tmp, so a clone under /tmp encodes this
+  // way. Excluding it silently dropped most of the demo corpus.
+  assert.equal(isScaffold("-private-tmp-demo-operator-code-mapkit-demo"), false);
+  assert.equal(isScaffold("-private-tmp-ccl-clone-fixtures-repos-lint-bot"), false);
 });
 
 test("an ordinary repo is never scaffold", () => {

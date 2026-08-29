@@ -88,6 +88,11 @@ function agentSection(a: AgentSummary, workingHours: number, topMissions: Missio
   const onClockH = a.totalSeconds / 3600;
   const avgSec = a.withDuration ? a.totalSeconds / a.withDuration : 0;
 
+  // A corpus can be entirely main-thread. Everything below that describes a
+  // FLEET drops out in that case; the main-thread material (longest missions,
+  // what the hours amount to) is still true and still renders.
+  const hasFleet = a.total > 0;
+
   // Hero numbers — lead with the whole working time, then the fleet's slice.
   const hero = el(
     "div",
@@ -98,24 +103,28 @@ function agentSection(a: AgentSummary, workingHours: number, topMissions: Missio
       el("span", { class: "vz-hero-v" }, Math.round(workingHours) + " h"),
       el("span", { class: "vz-hero-l" }, "on the clock"),
     ),
-    el(
-      "div",
-      { class: "vz-hero-fig" },
-      el("span", { class: "vz-hero-v" }, compact(a.total)),
-      el("span", { class: "vz-hero-l" }, "agents dispatched"),
-    ),
-    el(
-      "div",
-      { class: "vz-hero-fig" },
-      el("span", { class: "vz-hero-v" }, onClockH.toFixed(1) + " h"),
-      el("span", { class: "vz-hero-l" }, "delegated to agents"),
-    ),
-    el(
-      "div",
-      { class: "vz-hero-fig" },
-      el("span", { class: "vz-hero-v" }, a.byType.length.toString()),
-      el("span", { class: "vz-hero-l" }, "agent types"),
-    ),
+    ...(hasFleet
+      ? [
+          el(
+            "div",
+            { class: "vz-hero-fig" },
+            el("span", { class: "vz-hero-v" }, compact(a.total)),
+            el("span", { class: "vz-hero-l" }, "agents dispatched"),
+          ),
+          el(
+            "div",
+            { class: "vz-hero-fig" },
+            el("span", { class: "vz-hero-v" }, onClockH.toFixed(1) + " h"),
+            el("span", { class: "vz-hero-l" }, "delegated to agents"),
+          ),
+          el(
+            "div",
+            { class: "vz-hero-fig" },
+            el("span", { class: "vz-hero-v" }, a.byType.length.toString()),
+            el("span", { class: "vz-hero-l" }, "agent types"),
+          ),
+        ]
+      : []),
   );
 
   // Segmented "fleet" bar — proportion of the fleet by type, one strip.
@@ -243,35 +252,42 @@ function agentSection(a: AgentSummary, workingHours: number, topMissions: Missio
   return el(
     "section",
     { class: "vz-section vz-agentry" },
-    el("h2", {}, "The agent fleet"),
+    el("h2", {}, hasFleet ? "The agent fleet" : "Time on the clock"),
     el(
       "p",
       { class: "vz-lede" },
-      `Most of this wasn't typed by one model in a chat box — it ran across the main thread and ` +
-        `a fleet of subagents working in parallel. Every number is read straight from the ` +
-        `transcripts: time on the clock from message gaps (human idle excluded), a dispatch from ` +
-        `each Agent/Task call, a duration from the gap to its result.`,
+      hasFleet
+        ? `Most of this wasn't typed by one model in a chat box — it ran across the main thread and ` +
+          `a fleet of subagents working in parallel. Every number is read straight from the ` +
+          `transcripts: time on the clock from message gaps (human idle excluded), a dispatch from ` +
+          `each Agent/Task call, a duration from the gap to its result.`
+        : `This corpus ran entirely on the main thread — no subagents were dispatched. Time on the ` +
+          `clock is read straight from the transcripts: message gaps, with human idle excluded.`,
     ),
     hero,
-    el("div", { class: "vz-fleet-wrap" }, fleetBar, legend),
-    el(
-      "div",
-      { class: "vz-split" },
-      el(
-        "div",
-        { class: "vz-split-col" },
-        el("h3", {}, "By type — who gets called"),
-        typeBars,
-      ),
-      el(
-        "div",
-        { class: "vz-split-col" },
-        el("h3", {}, "By time — who does the work"),
-        workBars,
-      ),
-    ),
-    el("h3", { class: "vz-sub-h" }, `Dispatch cadence — ${avgSec.toFixed(0)}s average per run`),
-    cadence,
+    ...(hasFleet
+      ? [
+          el("div", { class: "vz-fleet-wrap" }, fleetBar, legend),
+          el(
+            "div",
+            { class: "vz-split" },
+            el(
+              "div",
+              { class: "vz-split-col" },
+              el("h3", {}, "By type — who gets called"),
+              typeBars,
+            ),
+            el(
+              "div",
+              { class: "vz-split-col" },
+              el("h3", {}, "By time — who does the work"),
+              workBars,
+            ),
+          ),
+          el("h3", { class: "vz-sub-h" }, `Dispatch cadence — ${avgSec.toFixed(0)}s average per run`),
+          cadence,
+        ]
+      : []),
     el("h3", { class: "vz-sub-h" }, "Longest missions — single turns of work"),
     el(
       "p",
@@ -304,7 +320,12 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
 
   clear(host);
   const t = m.totals;
-  const cacheRatio = t.tokIn > 0 ? Math.round(t.tokCacheRead / t.tokIn) : 0;
+  // Round for DISPLAY only. Deciding on the rounded value made this page and
+  // Profile disagree about the same corpus: a true 1.6 rounds to 2 here and
+  // printed "caching is doing the work" while Profile, using the unrounded
+  // value, printed "close to parity".
+  const cacheRatioExact = t.tokIn > 0 ? t.tokCacheRead / t.tokIn : 0;
+  const cacheRatio = Math.round(cacheRatioExact);
   const perDay = m.span.activeDays > 0 ? t.cost / m.span.activeDays : 0;
   const workingHours = m.engagement.workingSeconds / 3600;
   // Names which pricing table produced the cost figures below, so a stale
@@ -348,14 +369,9 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
   );
 
   // ── The headline graphic: the agent fleet ────────────────────────
-  // Only when there is a fleet to show. On a corpus with no Agent/Task calls
-  // every figure in this section is 0, the fleet bar and both breakdowns come
-  // out empty, and the lede would still assert "a fleet of subagents working in
-  // parallel". Profile already states the rule for the same data: a section
-  // drops out when the signal that would justify it is absent.
-  if (m.agents.total > 0) {
-    host.append(agentSection(m.agents, workingHours, m.topMissions));
-  }
+  // agentSection drops its own fleet-specific parts when nothing was dispatched
+  // and keeps the main-thread material, which is true either way.
+  host.append(agentSection(m.agents, workingHours, m.topMissions));
 
   // ── Pace ─────────────────────────────────────────────────────────
   const busiest = [...m.byDay].sort((a, b) => b.events - a.events)[0];
@@ -401,7 +417,7 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
       "The prompt-cache iceberg",
       `${compact(t.tokCacheRead)} cache-read tokens against ${compact(t.tokIn)} of fresh input — ` +
         `a ${cacheRatio.toLocaleString("en-US")}× ratio. ` +
-        (cacheRatio >= 2
+        (cacheRatioExact >= 2
           ? `Almost nothing is paid for at the full input rate; prompt caching is doing the work.`
           : `Cache reads and fresh input are close to parity here, so little of the input cost is absorbed by the cache.`) +
         ` (Log scale.)`,
