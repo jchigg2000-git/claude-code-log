@@ -179,7 +179,7 @@
 
 <header class="hero">
   <div class="wrap">
-    <pre class="log" aria-hidden="true"><span class="ln">{"type":"user","ts":"2026-08-28T18:19:06Z","content":"<span class="u">resume the loop — full 5 hr window</span>"}</span><span class="ln">{"type":"assistant","content":[{"type":"tool_use","name":"<span class="t">Agent</span>","input":{"description":"Fan out five finders"}}]}</span><span class="ln">{"type":"assistant","usage":{"input_tokens":48213,"output_tokens":1907,"cache_read_input_tokens":812440}}</span><span class="ln hit">{"type":"user","content":"<span class="k">that's not what I meant — only the API routes</span>"}</span></pre>
+    <pre class="log" aria-hidden="true"><span class="ln">{"type":"user","timestamp":"2026-08-28T18:19:06Z","message":{"content":"<span class="u">add auth to the login page</span>"}}</span><span class="ln">{"type":"assistant","message":{"content":[{"type":"tool_use","name":"<span class="t">Agent</span>","input":{"description":"Fan out five finders"}}]}}</span><span class="ln">{"type":"assistant","message":{"usage":{"input_tokens":48213,"output_tokens":1907,"cache_read_input_tokens":812440}}}</span><span class="ln hit">{"type":"user","message":{"content":"<span class="k">that's not what I meant — only the login form</span>"}}</span></pre>
 
     <h1>Your Claude Code history<br /><span class="dim">already tells this story.</span></h1>
     <p class="lede">Claude Code writes a JSONL transcript of every session on your machine. <strong>Claude Code Log</strong> reads them all — every repo, every prompt, every token — and turns them into a dashboard you can actually think with. Local only. Read only. Yours only.</p>
@@ -192,15 +192,15 @@
 
 <section>
   <div class="wrap">
-    <p class="eyebrow">The five tabs</p>
-    <h2>One corpus, five ways to read it</h2>
+    <p class="eyebrow">Five tabs and a search box</p>
+    <h2>One corpus, six ways to read it</h2>
     <p class="sub">The app scans your session logs, crawls your repositories, and joins the two. Each tab is a different question asked of the same corpus.</p>
 
     <div class="tab">
       <div class="shot"><img src="screenshots/repos.png" alt="The Repos overview: every repository joined to its sessions" loading="lazy" /></div>
       <div>
         <h3>Repos<span class="hash">#/</span></h3>
-        <p>Every repository on your machine, joined to the sessions run inside it. Drill into one to read its <em>CLAUDE.md, README, manifests, and memory index</em> next to the parsed transcript of each session — the specs and the work, side by side.</p>
+        <p>Every repository under your configured base root, joined to the sessions run inside it. Drill into one to read its <em>CLAUDE.md, README, manifests, and memory index</em> next to the parsed transcript of each session — the specs and the work, side by side.</p>
       </div>
     </div>
 
@@ -208,7 +208,7 @@
       <div class="shot"><img src="screenshots/dataviz.png" alt="Data Viz: spend, token flow, and the subagent fleet" loading="lazy" /></div>
       <div>
         <h3>Data Viz<span class="hash">#/viz</span></h3>
-        <p>The whole corpus at once: estimated spend by project and by model family, token flow through the prompt cache, the subagent fleet, your longest missions. Charts are <em>hand-rolled SVG</em> — no charting library anywhere in the tree.</p>
+        <p>The whole corpus at once: estimated spend by day and by project, token flow through the prompt cache, the subagent fleet, your longest missions. Charts are <em>hand-rolled SVG</em> — no charting library anywhere in the tree.</p>
       </div>
     </div>
 
@@ -223,20 +223,27 @@
     <div class="tab">
       <div class="shot"><img src="screenshots/search.png" alt="Search: full-text across every transcript" loading="lazy" /></div>
       <div>
-        <h3>Search<span class="hash">#/search</span></h3>
-        <p>Full-text search across every transcript you have ever produced, newest first, with highlighted snippets. A raw-text prefilter skips ~95% of files before any JSON is parsed, so it stays fast on a multi-gigabyte corpus.</p>
+        <h3>Search<span class="hash">top bar → #/search</span></h3>
+        <p>Not a tab — a box in the top bar, live on every page. Full-text across every transcript you have ever produced, newest first, with highlighted snippets. A raw-text prefilter skips ~95% of files before any JSON is parsed, so it stays fast on a multi-gigabyte corpus.</p>
       </div>
     </div>
 
     <div class="tab">
       <div class="shot"><pre class="noshot" aria-label="Example of a mined correction pair">you said   <span class="q">"add auth to the login page"</span>
-it heard    add auth to every page
-you replied <span class="c">"that's not what I meant — only the API routes"</span>
+it heard    added auth to every page in the app
+you replied <span class="c">"that's not what I meant — only the login form"</span>
 
 category: taken literally · confidence: explicit</pre></div>
       <div>
         <h3>Words That Mattered<span class="hash">#/words</span></h3>
         <p>The moments your own phrasing changed the outcome. Corrections in your prompts — <em>"that's not what I meant", "typo, I meant…"</em> — are paired with the earlier phrase that got taken the wrong way, so you can see which words steered sessions off course.</p>
+      </div>
+    </div>
+    <div class="tab">
+      <div class="shot"><img src="screenshots/profile.png" alt="Profile: a written read of the corpus, computed live" loading="lazy" /></div>
+      <div>
+        <h3>Profile<span class="hash">#/profile</span></h3>
+        <p>A written, long-form read of whoever's corpus the app is pointed at — computed live on every load, nothing hardcoded. Sections <em>drop out entirely</em> when the signal that would justify them is absent, so a thin corpus renders a short honest page rather than a padded one.</p>
       </div>
     </div>
   </div>
@@ -264,13 +271,13 @@ category: taken literally · confidence: explicit</pre></div>
     <p class="sub">Vite serves the app and, through connect middleware in the same process, a small read-only API. The browser never touches the filesystem directly.</p>
     <pre class="pipe"><b>scan</b>   ~/.claude/projects/*/<span class="a">*.jsonl</span>     every session transcript, parsed defensively
 <b>join</b>   repo path <span class="a">⇄</span> encoded log dir       lossless by encoding, never by lossy decoding
-<b>serve</b>  GET-only <span class="a">/api/*</span> on 127.0.0.1      seven read-only routes, one per view</pre>
+<b>serve</b>  GET-only <span class="a">/api/*</span> on 127.0.0.1      eight read-only routes, one per view plus a health probe</pre>
   </div>
 </section>
 
 <footer>
   <div class="wrap">
-    <p>Zero-dependency vanilla TypeScript + Vite; the only runtime dependency is <code>marked</code>. Needs Node 24+, macOS or Linux, and some Claude Code history under <code>~/.claude/projects</code> — or none at all, with <code>npm run demo</code>.</p>
+    <p>Vanilla TypeScript + Vite with exactly one runtime dependency — <code>marked</code>, for rendering markdown. No UI framework, no charting library, no webfonts. Needs Node 24+, macOS or Linux, and some Claude Code history under <code>~/.claude/projects</code> — or none at all, with <code>npm run demo</code>.</p>
     <p>Full details, requirements, and the honest list of limitations: <a href="../README.md">README</a>.</p>
     <p class="fine">All screenshots come from the generated sample corpus, never a real machine. Not affiliated with, endorsed by, or sponsored by Anthropic — "Claude" and "Claude Code" are Anthropic's trademarks; this is an independent third-party tool.</p>
   </div>
