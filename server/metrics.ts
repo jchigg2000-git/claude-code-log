@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { repoKeysFor } from "./fsScan.ts";
 import { matchRepo, resolveProjectName } from "./projectNames.ts";
-import { family, loadPricing, type LoadedPricing } from "./pricing.ts";
+import { family, loadPricing, type LoadedPricing, type PricingSource } from "./pricing.ts";
 import { ttlMemo } from "./memo.ts";
 
 /**
@@ -127,7 +127,7 @@ export interface Metrics {
   /** Longest main-thread work turns, human-initiated, by working time. */
   topMissions: MissionStat[];
   /** Which pricing table priced this scan's cost figures, and as-of when. See server/pricing.ts. */
-  pricing: { source: string; effective: string };
+  pricing: { source: PricingSource; effective: string };
 }
 
 const SIZE_CAP = 60 * 1024 * 1024;
