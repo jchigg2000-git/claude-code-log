@@ -73,13 +73,19 @@ async function waitForServer() {
   return false;
 }
 
-async function assertFixtures() {
-  const qs = new URLSearchParams({
+/** The corpus this run is supposed to be shooting. Both guards use it, so they
+ *  can never disagree about which corpus "correct" means. */
+function fixturePaths() {
+  return {
     logDir: path.join(FIXTURES, "projects"),
     repoRoot: process.env.CCL_FIXTURES_REPOS
       ? path.resolve(process.env.CCL_FIXTURES_REPOS)
       : path.join(FIXTURES, "repos"),
-  });
+  };
+}
+
+async function assertFixtures() {
+  const qs = new URLSearchParams(fixturePaths());
   const res = await fetch(`${URL_BASE}/api/overview?${qs}`);
   if (!res.ok) return false;
   const data = await res.json();
@@ -119,6 +125,50 @@ async function connect(url) {
   return new Cdp(ws);
 }
 
+/**
+ * Refuse to shoot a server that can't serve THIS fixture corpus.
+ *
+ * `waitForServer` only proves something answers on the port. The port is pinned
+ * with strictPort, so a stale dev server left over from an earlier run keeps it
+ * and the new one exits — leaving the capture pointed at whatever corpus the old
+ * process was serving, silently. That produces screenshots that disagree with
+ * the README's own numbers, and nothing about the run looks wrong.
+ *
+ * This catches the corpus being unreadable, empty, or outside the server's
+ * allowed roots. It cannot catch "a different server is serving a different
+ * SEED" -- the documented flow runs `demo:shots` and `screenshots` in separate
+ * terminals and only the first knows CCL_FIXTURES_DIR -- so the line it prints
+ * names the corpus and counts it checked, which is what makes a mismatch
+ * visible in the run output.
+ */
+async function assertServingFixtures() {
+  const { logDir, repoRoot } = fixturePaths();
+  const url = `${URL_BASE}/api/metrics?logDir=${encodeURIComponent(logDir)}&repoRoot=${encodeURIComponent(repoRoot)}`;
+  let served;
+  try {
+    const res = await fetch(url);
+    if (!res.ok) {
+      console.error(`The server rejected the fixture corpus (HTTP ${res.status}).`);
+      console.error(`It is probably a stale server on ${URL_BASE} from an earlier run, or one`);
+      console.error(`started without CLAUDE_CODE_LOG_ROOTS covering ${FIXTURES}.`);
+      return false;
+    }
+    served = await res.json();
+  } catch (err) {
+    console.error(`Could not read ${url}: ${err.message}`);
+    return false;
+  }
+  if (!served?.totals?.sessions) {
+    console.error(`The server reports an empty corpus at ${logDir} — it is serving something else.`);
+    console.error(`Kill whatever holds ${URL_BASE} and re-run: npm run demo:shots`);
+    return false;
+  }
+  console.log(
+    `  serving ${served.totals.sessions} sessions / ${served.agents?.total ?? 0} agent dispatches from ${logDir}`,
+  );
+  return true;
+}
+
 async function main() {
   if (!(await waitForServer())) {
     console.error(`Nothing serving ${URL_BASE} — start it first with: npm run demo`);
@@ -128,6 +178,7 @@ async function main() {
     console.error(`The fixture corpus at ${FIXTURES} isn't readable — run: npm run fixtures`);
     process.exit(1);
   }
+  if (!(await assertServingFixtures())) process.exit(1);
 
   await mkdir(OUT, { recursive: true });
   const profileDir = await mkdtemp(path.join(os.tmpdir(), "ccl-shots-"));
