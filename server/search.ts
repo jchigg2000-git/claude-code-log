@@ -5,6 +5,7 @@ import { decodeProjectDirApprox } from "./paths.ts";
 import { repoKeysFor } from "./fsScan.ts";
 import { resolveProjectPath } from "./projectNames.ts";
 import { peekSearchable, putSearchable, type SearchableEvent } from "./transcriptCache.ts";
+import { ttlMemo } from "./memo.ts";
 
 export interface SearchMatch {
   file: string;
@@ -110,23 +111,20 @@ export async function enumerateSessions(logDir: string): Promise<SearchSession[]
  * is picked up almost immediately, long enough to absorb a whole burst of
  * keystrokes as one scan.
  */
-let sessionsCache: { key: string; at: number; data: SearchSession[] } | null = null;
-const SESSIONS_TTL_MS = 10_000;
+const sessionsMemo = ttlMemo<SearchSession[]>(10_000);
 
-async function getSessionsCached(logDir: string): Promise<SearchSession[]> {
-  if (sessionsCache && sessionsCache.key === logDir && Date.now() - sessionsCache.at < SESSIONS_TTL_MS) {
-    return sessionsCache.data;
-  }
-  const data = await enumerateSessions(logDir);
-  // An empty result means an unreadable/missing logDir — never memoize that,
-  // or a transient FS error papers over the corpus for the full TTL.
-  if (data.length > 0) sessionsCache = { key: logDir, at: Date.now(), data };
-  return data;
+function getSessionsCached(logDir: string): Promise<SearchSession[]> {
+  return sessionsMemo.get(logDir, async () => {
+    const data = await enumerateSessions(logDir);
+    // An empty result means an unreadable/missing logDir — never memoize that,
+    // or a transient FS error papers over the corpus for the full TTL.
+    return { value: data, healthy: data.length > 0 };
+  });
 }
 
 /** Drop the enumeration memo. Exposed for tooling/tests. */
 export function clearSearchCaches(): void {
-  sessionsCache = null;
+  sessionsMemo.clear();
 }
 
 function escapeRegExp(s: string): string {

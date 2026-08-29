@@ -3,6 +3,7 @@ import path from "node:path";
 import { repoKeysFor } from "./fsScan.ts";
 import { resolveProjectName } from "./projectNames.ts";
 import { family, loadPricing } from "./pricing.ts";
+import { ttlMemo } from "./memo.ts";
 
 /**
  * Corpus-wide metrics derived from the raw `.jsonl` transcripts: volume, pace,
@@ -208,12 +209,11 @@ function toProjectMetric(a: Acc): ProjectMetric {
   };
 }
 
-let cache: { key: string; at: number; data: Metrics } | null = null;
-const TTL_MS = 5 * 60 * 1000;
+const memo = ttlMemo<Metrics>(5 * 60 * 1000);
 
 /**
  * Scan every transcript and roll it up. Memoized per (logDir, repoRoot) for
- * {@link TTL_MS}.
+ * the memo's 5-minute TTL; a scan whose readdir failed is never memoized.
  *
  * `repoRoot` is optional and only ever improves display names: with it, every
  * project is named by matching crawled repo paths against the encoded log
@@ -221,9 +221,14 @@ const TTL_MS = 5 * 60 * 1000;
  * {@link resolveProjectName}. It is part of the cache key because two roots
  * over the same logDir produce different names for identical numbers.
  */
-export async function buildMetrics(logDir: string, repoRoot?: string): Promise<Metrics> {
-  const cacheKey = `${logDir}::${repoRoot ?? ""}`;
-  if (cache && cache.key === cacheKey && Date.now() - cache.at < TTL_MS) return cache.data;
+export function buildMetrics(logDir: string, repoRoot?: string): Promise<Metrics> {
+  return memo.get(`${logDir}::${repoRoot ?? ""}`, () => computeMetrics(logDir, repoRoot));
+}
+
+async function computeMetrics(
+  logDir: string,
+  repoRoot?: string,
+): Promise<{ value: Metrics; healthy: boolean }> {
 
   const pricing = await loadPricing();
 
@@ -556,6 +561,6 @@ export async function buildMetrics(logDir: string, repoRoot?: string): Promise<M
     pricing: { source: pricing.source, effective: pricing.effective },
   };
 
-  if (scanned) cache = { key: cacheKey, at: Date.now(), data };
-  return data;
+  // `scanned` is the health signal: a failed readdir must not be memoized.
+  return { value: data, healthy: scanned };
 }

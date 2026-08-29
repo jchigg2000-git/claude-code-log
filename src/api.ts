@@ -31,74 +31,56 @@ export function fetchSearch(cfg: AppConfig, query: string): Promise<SearchResult
   );
 }
 
-// The metrics scan reads the whole corpus; memoize per logDir+repoRoot for the
-// page lifetime so navigating Repos ⇄ Data Viz doesn't rescan every time.
-// repoRoot is part of the key because it decides how projects are NAMED — the
-// same corpus under a different root yields the same numbers with different
-// labels, and a logDir-only key would serve the stale ones.
-let metricsCache: { key: string; promise: Promise<Metrics> } | null = null;
-
-export function fetchMetrics(cfg: AppConfig): Promise<Metrics> {
-  const key = `${cfg.logDir}::${cfg.repoRoot}`;
-  if (!metricsCache || metricsCache.key !== key) {
-    const promise = getJSON<Metrics>(
-      `/api/metrics?${q({ logDir: cfg.logDir, repoRoot: cfg.repoRoot })}`,
-    );
-    // Don't let a transient failure become permanent: a rejected promise cached here would be
-    // replayed on every re-navigation (callers show an error but never invalidate). Evict on
-    // rejection — guarded so a newer in-flight fetch isn't clobbered — so the next call retries.
-    promise.catch(() => {
-      if (metricsCache?.promise === promise) metricsCache = null;
-    });
-    metricsCache = { key, promise };
-  }
-  return metricsCache.promise;
+/**
+ * Page-lifetime promise memo for the corpus-scanning endpoints, so navigating
+ * between tabs doesn't rescan every time. A rejected promise is evicted
+ * (guarded so a newer in-flight fetch isn't clobbered) — a transient failure
+ * cached here would otherwise be replayed on every re-navigation, since
+ * callers show an error but never invalidate.
+ */
+function cachedEndpoint<A extends unknown[], T>(
+  keyOf: (...args: A) => string,
+  fetchOf: (...args: A) => Promise<T>,
+): { fetch: (...args: A) => Promise<T>; invalidate: () => void } {
+  let cache: { key: string; promise: Promise<T> } | null = null;
+  return {
+    fetch(...args: A): Promise<T> {
+      const key = keyOf(...args);
+      if (!cache || cache.key !== key) {
+        const promise = fetchOf(...args);
+        promise.catch(() => {
+          if (cache?.promise === promise) cache = null;
+        });
+        cache = { key, promise };
+      }
+      return cache.promise;
+    },
+    invalidate(): void {
+      cache = null;
+    },
+  };
 }
 
-export function invalidateMetrics(): void {
-  metricsCache = null;
-}
+// repoRoot is part of the metrics/words keys because it decides how projects
+// are NAMED — the same corpus under a different root yields the same numbers
+// with different labels, and a logDir-only key would serve the stale ones.
+const metrics = cachedEndpoint(
+  (cfg: AppConfig) => `${cfg.logDir}::${cfg.repoRoot}`,
+  (cfg) => getJSON<Metrics>(`/api/metrics?${q({ logDir: cfg.logDir, repoRoot: cfg.repoRoot })}`),
+);
+export const fetchMetrics = metrics.fetch;
+export const invalidateMetrics = metrics.invalidate;
 
-// The journey scan reads the whole command history; memoize per logDir+window
-// for the page lifetime, same as metrics.
-let journeyCache: { key: string; promise: Promise<Journey> } | null = null;
+const journey = cachedEndpoint(
+  (cfg: AppConfig, days = 50) => `${cfg.logDir}::${days}`,
+  (cfg, days = 50) => getJSON<Journey>(`/api/journey?${q({ logDir: cfg.logDir, days: String(days) })}`),
+);
+export const fetchJourney = journey.fetch;
+export const invalidateJourney = journey.invalidate;
 
-export function fetchJourney(cfg: AppConfig, days = 50): Promise<Journey> {
-  const key = `${cfg.logDir}::${days}`;
-  if (!journeyCache || journeyCache.key !== key) {
-    const promise = getJSON<Journey>(`/api/journey?${q({ logDir: cfg.logDir, days: String(days) })}`);
-    // Same as fetchMetrics: evict on rejection so a transient failure isn't cached permanently.
-    promise.catch(() => {
-      if (journeyCache?.promise === promise) journeyCache = null;
-    });
-    journeyCache = { key, promise };
-  }
-  return journeyCache.promise;
-}
-
-export function invalidateJourney(): void {
-  journeyCache = null;
-}
-
-// The words scan reads the whole corpus; memoize per logDir+repoRoot for the
-// page lifetime, same as metrics and for the same naming reason.
-let wordsCache: { key: string; promise: Promise<WordsResults> } | null = null;
-
-export function fetchWords(cfg: AppConfig): Promise<WordsResults> {
-  const key = `${cfg.logDir}::${cfg.repoRoot}`;
-  if (!wordsCache || wordsCache.key !== key) {
-    const promise = getJSON<WordsResults>(
-      `/api/words?${q({ logDir: cfg.logDir, repoRoot: cfg.repoRoot })}`,
-    );
-    // Same as fetchMetrics: evict on rejection so a transient failure isn't cached permanently.
-    promise.catch(() => {
-      if (wordsCache?.promise === promise) wordsCache = null;
-    });
-    wordsCache = { key, promise };
-  }
-  return wordsCache.promise;
-}
-
-export function invalidateWords(): void {
-  wordsCache = null;
-}
+const words = cachedEndpoint(
+  (cfg: AppConfig) => `${cfg.logDir}::${cfg.repoRoot}`,
+  (cfg) => getJSON<WordsResults>(`/api/words?${q({ logDir: cfg.logDir, repoRoot: cfg.repoRoot })}`),
+);
+export const fetchWords = words.fetch;
+export const invalidateWords = words.invalidate;

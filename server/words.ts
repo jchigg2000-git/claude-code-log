@@ -3,6 +3,7 @@ import { parseTranscriptText, type TimelineEvent } from "./jsonl.ts";
 import { enumerateSessions, type SearchSession } from "./search.ts";
 import { repoKeysFor } from "./fsScan.ts";
 import { resolveProjectPath } from "./projectNames.ts";
+import { ttlMemo } from "./memo.ts";
 
 /**
  * "Words That Mattered" — mine every transcript for moments where the user's
@@ -245,17 +246,21 @@ function mineSession(session: SearchSession, events: TimelineEvent[]): { entries
  * sessions, not keystrokes. Deliberately does NOT feed `transcriptCache.ts`:
  * a corpus-wide sweep would evict search's working set of matching files.
  */
-let cache: { key: string; at: number; data: WordsResults } | null = null;
-const TTL_MS = 5 * 60 * 1000;
+const memo = ttlMemo<WordsResults>(5 * 60 * 1000);
 
 /** Drop the memo. Exposed for tooling/tests. */
 export function clearWordsCache(): void {
-  cache = null;
+  memo.clear();
 }
 
-export async function buildWords(logDir: string, repoRoot?: string): Promise<WordsResults> {
-  const cacheKey = `${logDir}::${repoRoot ?? ""}`;
-  if (cache && cache.key === cacheKey && Date.now() - cache.at < TTL_MS) return cache.data;
+export function buildWords(logDir: string, repoRoot?: string): Promise<WordsResults> {
+  return memo.get(`${logDir}::${repoRoot ?? ""}`, () => computeWords(logDir, repoRoot));
+}
+
+async function computeWords(
+  logDir: string,
+  repoRoot?: string,
+): Promise<{ value: WordsResults; healthy: boolean }> {
 
   // Same lossless path recovery as search: the encoded log dir name alone can't
   // be split back into a real path, but a crawled repo's encoded path can be
@@ -298,6 +303,5 @@ export async function buildWords(logDir: string, repoRoot?: string): Promise<Wor
     entries,
   };
   // Never memoize an empty/unreadable corpus — same caution as search's memo.
-  if (data.sessionsScanned > 0) cache = { key: cacheKey, at: Date.now(), data };
-  return data;
+  return { value: data, healthy: data.sessionsScanned > 0 };
 }
