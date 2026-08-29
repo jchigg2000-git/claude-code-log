@@ -2,7 +2,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { repoKeysFor } from "./fsScan.ts";
 import { resolveProjectName } from "./projectNames.ts";
-import { family, loadPricing } from "./pricing.ts";
+import { family, loadPricing, type LoadedPricing } from "./pricing.ts";
 import { ttlMemo } from "./memo.ts";
 
 /**
@@ -211,6 +211,248 @@ function toProjectMetric(a: Acc): ProjectMetric {
 
 const memo = ttlMemo<Metrics>(5 * 60 * 1000);
 
+/** Drop the whole-corpus TTL memo. Exposed for tooling/tests (clearWordsCache's idiom). */
+export function clearMetricsCache(): void {
+  memo.clear();
+}
+
+/**
+ * One transcript file's contribution to the corpus rollup — everything
+ * computeMetrics accumulates, reduced to this file's share. A pure function of
+ * the file's bytes plus the pricing table (which {@link loadPricing} memoizes
+ * for the process lifetime — a pricing edit already requires a restart, and a
+ * restart also empties this memo, so baking `cost` in here is sound).
+ *
+ * Names are deliberately absent: `resolveProjectName` depends on `repoRoot`,
+ * so missions carry only `{seconds, opening}` and the project name is stamped
+ * at merge time — one FileAgg serves every (logDir, repoRoot) cache key.
+ *
+ * AGENT PAIRING INVARIANT (verified, do not weaken silently): a dispatch's
+ * `tool_result` can arrive in a later MESSAGE, but never in a file that lacks
+ * the `tool_use` itself — resumed sessions copy the conversation prefix
+ * wholesale, so a duplicated result is always preceded by its duplicated
+ * dispatch. Measured over the live 3.5 GB corpus (2026-08-28): 2,682 distinct
+ * Agent/Task dispatch ids, 65 of them duplicated across files by resumes,
+ * 0 dispatches whose result lives only in a file without the dispatch, and
+ * per-file pairing merged id-keyed reproduced the corpus-global maps with
+ * 0 differences. `agentResults` is therefore filtered to ids dispatched in
+ * the SAME file (first in-file result wins), unpaired dispatches stay in
+ * `agentUses` with no result entry, and the rollup merges id-keyed in scan
+ * order — uses last-wins, results first-wins — which is exactly the corpus-
+ * global algorithm, including the dedup of resumed-session duplicates.
+ * (Counts must never be merged additively: 65 real ids would double-count.)
+ */
+interface FileAgg {
+  lines: number;
+  userPrompts: number;
+  assistant: number;
+  tokIn: number;
+  tokOut: number;
+  tokCW: number;
+  tokCR: number;
+  cost: number;
+  first: string | null;
+  last: string | null;
+  promptChars: number;
+  maxPrompt: number;
+  toolCalls: number;
+  workingSec: number;
+  dayEvents: Map<string, number>;
+  dayCost: Map<string, number>;
+  modelTokens: Map<string, number>;
+  toolCounts: Map<string, number>;
+  /** Main-thread work turns; turns never span files (one file = one session). */
+  missions: { seconds: number; opening: string }[];
+  agentUses: Map<string, { ts: string | null; type: string; desc: string }>;
+  agentResults: Map<string, string | null>;
+}
+
+/**
+ * Per-file aggregate memo, keyed by absolute path and validated by
+ * mtimeMs+size — sound because transcripts are append-only (the invariant
+ * transcriptCache.ts documents; fsScan.ts's lineCountCache leans on it the
+ * same way). With it, a rebuild after the 5-minute TTL is stat-only for
+ * unchanged files; only new/changed transcripts are read and parsed. Entries
+ * are a few KB of numbers and small maps, and every scan prunes entries under
+ * its logDir for files that disappeared, so deletions don't leak. Memoized
+ * FileAggs are shared across rebuilds: the merge below must never mutate one.
+ */
+const fileAggCache = new Map<string, { mtimeMs: number; size: number; agg: FileAgg }>();
+
+/** Drop every memoized per-file aggregate. Exposed for tests. */
+export function clearMetricsFileCache(): void {
+  fileAggCache.clear();
+}
+
+/** Scan one transcript's raw text into its {@link FileAgg} contribution. */
+function scanTranscript(raw: string, pricing: LoadedPricing): FileAgg {
+  const agg: FileAgg = {
+    lines: 0,
+    userPrompts: 0,
+    assistant: 0,
+    tokIn: 0,
+    tokOut: 0,
+    tokCW: 0,
+    tokCR: 0,
+    cost: 0,
+    first: null,
+    last: null,
+    promptChars: 0,
+    maxPrompt: 0,
+    toolCalls: 0,
+    workingSec: 0,
+    dayEvents: new Map(),
+    dayCost: new Map(),
+    modelTokens: new Map(),
+    toolCounts: new Map(),
+    missions: [],
+    agentUses: new Map(),
+    agentResults: new Map(),
+  };
+  // Every tool_result in this file, first occurrence wins; filtered to this
+  // file's own dispatches at the end (see the pairing invariant on FileAgg).
+  const results = new Map<string, string | null>();
+
+  let prevMainTs: string | null = null; // main-thread working-time gap accumulation
+  // Per-turn accumulation, to surface the longest single missions.
+  let turnSec = 0;
+  let turnOpen = "";
+  let turnHas = false;
+  const closeTurn = (): void => {
+    if (turnHas && turnSec > 0 && !isMissionNoise(turnOpen)) {
+      agg.missions.push({
+        seconds: Math.round(turnSec),
+        opening: turnOpen.trim().replace(/\s+/g, " ").slice(0, 90),
+      });
+    }
+  };
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    agg.lines++;
+    let o: Record<string, unknown>;
+    try {
+      o = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    // A line parsing to null/primitive (corrupt/partial JSONL) doesn't throw; skip it before
+    // dereferencing o.timestamp, like the other malformed lines.
+    if (!o || typeof o !== "object") continue;
+
+    const ts = typeof o.timestamp === "string" ? o.timestamp : null;
+    const day = ts && ts.length >= 10 ? ts.slice(0, 10) : null;
+    if (ts) {
+      if (!agg.first || ts < agg.first) agg.first = ts;
+      if (!agg.last || ts > agg.last) agg.last = ts;
+    }
+
+    const type = o.type;
+    const msg =
+      o.message && typeof o.message === "object"
+        ? (o.message as Record<string, unknown>)
+        : null;
+
+    // Working time, MAIN THREAD only (sidechain rows are the sub-agents, and
+    // their wall-clock already shows up as the tool-result gap on the main
+    // thread). Count generation + tool-execution gaps; skip the gap before a
+    // real human prompt (that gap is the human thinking, not Claude working).
+    // Computed once per line; engagement tracking here and the prompt
+    // accounting further down both consume it.
+    const prompt = type === "user" ? humanPrompt(msg) : null;
+
+    if (ts && o.isSidechain !== true && (type === "user" || type === "assistant")) {
+      const isHumanPrompt = prompt?.isHuman ?? false;
+      const promptTxt = prompt?.isHuman ? prompt.parts.join(" ") : "";
+      if (prevMainTs) {
+        const gap = (Date.parse(ts) - Date.parse(prevMainTs)) / 1000;
+        if (gap > 0 && !isHumanPrompt) {
+          const capped = Math.min(gap, WORK_CAP_SEC);
+          agg.workingSec += capped;
+          turnSec += capped; // attribute to the in-flight turn
+        }
+      }
+      if (isHumanPrompt) {
+        // A new human prompt closes the previous turn and opens this one.
+        closeTurn();
+        turnSec = 0;
+        turnOpen = promptTxt;
+        turnHas = true;
+      }
+      prevMainTs = ts;
+    }
+
+    // Subagent dispatches (tool_use name Agent/Task) and their returns
+    // (tool_result) can sit in different messages; record both for pairing.
+    if (msg && Array.isArray(msg.content)) {
+      for (const b of msg.content) {
+        if (!b || typeof b !== "object") continue;
+        const blk = b as { type?: string; name?: string; id?: string; tool_use_id?: string; input?: Record<string, unknown> };
+        if (blk.type === "tool_use" && (blk.name === "Agent" || blk.name === "Task") && blk.id) {
+          const input = blk.input ?? {};
+          const subType = typeof input.subagent_type === "string" && input.subagent_type ? input.subagent_type : "unknown";
+          const desc = typeof input.description === "string" ? input.description : "";
+          agg.agentUses.set(blk.id, { ts, type: subType, desc });
+        } else if (blk.type === "tool_result" && blk.tool_use_id && !results.has(blk.tool_use_id)) {
+          results.set(blk.tool_use_id, ts);
+        }
+      }
+    }
+
+    if (prompt && msg) {
+      const txt = prompt.isHuman ? prompt.parts.join("") : "";
+      if (txt.trim()) {
+        agg.userPrompts++;
+        agg.promptChars += txt.length;
+        if (txt.length > agg.maxPrompt) agg.maxPrompt = txt.length;
+      }
+    }
+
+    if (type === "assistant" && msg) {
+      agg.assistant++;
+      const usage = (msg.usage ?? {}) as Record<string, number>;
+      const ti = usage.input_tokens || 0;
+      const to = usage.output_tokens || 0;
+      const tcw = usage.cache_creation_input_tokens || 0;
+      const tcr = usage.cache_read_input_tokens || 0;
+      agg.tokIn += ti;
+      agg.tokOut += to;
+      agg.tokCW += tcw;
+      agg.tokCR += tcr;
+
+      const model = typeof msg.model === "string" ? msg.model : null;
+      const fam = family(model);
+      let cost = 0;
+      if (fam) {
+        const [pi, po, pcw, pcr] = pricing.rates[fam];
+        cost = (ti * pi + to * po + tcw * pcw + tcr * pcr) / 1_000_000;
+      }
+      agg.cost += cost;
+      if (model) agg.modelTokens.set(model, (agg.modelTokens.get(model) ?? 0) + ti + to + tcw + tcr);
+      if (day) {
+        agg.dayEvents.set(day, (agg.dayEvents.get(day) ?? 0) + 1);
+        agg.dayCost.set(day, (agg.dayCost.get(day) ?? 0) + cost);
+      }
+
+      if (Array.isArray(msg.content)) {
+        for (const b of msg.content) {
+          if (b && typeof b === "object" && (b as { type?: string }).type === "tool_use") {
+            const nm = (b as { name?: string }).name ?? "tool";
+            agg.toolCounts.set(nm, (agg.toolCounts.get(nm) ?? 0) + 1);
+            agg.toolCalls++;
+          }
+        }
+      }
+    }
+  }
+  closeTurn(); // flush the final turn of the session
+
+  for (const [id, ts] of results) {
+    if (agg.agentUses.has(id)) agg.agentResults.set(id, ts);
+  }
+  return agg;
+}
+
 /**
  * Scan every transcript and roll it up. Memoized per (logDir, repoRoot) for
  * the memo's 5-minute TTL; a scan whose readdir failed is never memoized.
@@ -263,11 +505,16 @@ async function computeMetrics(
   let maxPrompt = 0;
 
   // Subagent dispatch/return pairing. Keyed by tool_use_id (globally unique),
-  // so we can pair across messages and across files in a single pass.
+  // so we can pair across messages and across files in a single pass. Rebuilt
+  // here from the per-file maps: uses last-wins, results first-wins, in scan
+  // order — identical to accumulating them inline (see FileAgg's invariant).
   const agentUses = new Map<string, { ts: string | null; type: string; desc: string }>();
   const agentResults = new Map<string, string | null>();
   let workingSec = 0;
   const allMissions: MissionStat[] = []; // longest main-thread work turns
+
+  // Files seen this scan, so stale fileAggCache entries under logDir get pruned.
+  const seenFiles = new Set<string>();
 
   for (const dirName of dirNames) {
     const scaffold = isScaffold(dirName);
@@ -302,156 +549,69 @@ async function computeMetrics(
 
     for (const f of files) {
       const full = path.join(projDir, f);
-      let raw: string;
+      let agg: FileAgg;
       try {
-        if ((await stat(full)).size > SIZE_CAP) {
+        const st = await stat(full);
+        if (st.size > SIZE_CAP) {
           a.sessions++;
           continue;
         }
-        raw = await readFile(full, "utf8");
+        const hit = fileAggCache.get(full);
+        if (hit && hit.mtimeMs === st.mtimeMs && hit.size === st.size) {
+          agg = hit.agg; // unchanged file: stat only, no read, no parse
+        } else {
+          agg = scanTranscript(await readFile(full, "utf8"), pricing);
+          fileAggCache.set(full, { mtimeMs: st.mtimeMs, size: st.size, agg });
+        }
+        seenFiles.add(full);
       } catch {
         continue;
       }
       a.sessions++;
 
-      let prevMainTs: string | null = null; // main-thread working-time gap accumulation
-      // Per-turn accumulation, to surface the longest single missions.
-      let turnSec = 0;
-      let turnOpen = "";
-      let turnHas = false;
-      const closeTurn = (): void => {
-        if (turnHas && turnSec > 0 && !isMissionNoise(turnOpen)) {
-          allMissions.push({
-            seconds: Math.round(turnSec),
-            opening: turnOpen.trim().replace(/\s+/g, " ").slice(0, 90),
-            project: a.name,
-          });
-        }
-      };
-      for (const line of raw.split("\n")) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        a.lines++;
-        let o: Record<string, unknown>;
-        try {
-          o = JSON.parse(trimmed);
-        } catch {
-          continue;
-        }
-        // A line parsing to null/primitive (corrupt/partial JSONL) doesn't throw; skip it before
-        // dereferencing o.timestamp, like the other malformed lines.
-        if (!o || typeof o !== "object") continue;
-
-        const ts = typeof o.timestamp === "string" ? o.timestamp : null;
-        const day = ts && ts.length >= 10 ? ts.slice(0, 10) : null;
-        if (ts) {
-          if (!firstTs || ts < firstTs) firstTs = ts;
-          if (!lastTs || ts > lastTs) lastTs = ts;
-          if (!a.first || ts < a.first) a.first = ts;
-          if (!a.last || ts > a.last) a.last = ts;
-        }
-
-        const type = o.type;
-        const msg =
-          o.message && typeof o.message === "object"
-            ? (o.message as Record<string, unknown>)
-            : null;
-
-        // Working time, MAIN THREAD only (sidechain rows are the sub-agents, and
-        // their wall-clock already shows up as the tool-result gap on the main
-        // thread). Count generation + tool-execution gaps; skip the gap before a
-        // real human prompt (that gap is the human thinking, not Claude working).
-        // Computed once per line; engagement tracking here and the prompt
-        // accounting further down both consume it.
-        const prompt = type === "user" ? humanPrompt(msg) : null;
-
-        if (ts && o.isSidechain !== true && (type === "user" || type === "assistant")) {
-          const isHumanPrompt = prompt?.isHuman ?? false;
-          const promptTxt = prompt?.isHuman ? prompt.parts.join(" ") : "";
-          if (prevMainTs) {
-            const gap = (Date.parse(ts) - Date.parse(prevMainTs)) / 1000;
-            if (gap > 0 && !isHumanPrompt) {
-              const capped = Math.min(gap, WORK_CAP_SEC);
-              workingSec += capped;
-              turnSec += capped; // attribute to the in-flight turn
-            }
-          }
-          if (isHumanPrompt) {
-            // A new human prompt closes the previous turn and opens this one.
-            closeTurn();
-            turnSec = 0;
-            turnOpen = promptTxt;
-            turnHas = true;
-          }
-          prevMainTs = ts;
-        }
-
-        // Subagent dispatches (tool_use name Agent/Task) and their returns
-        // (tool_result) can sit in different messages; record both for pairing.
-        if (msg && Array.isArray(msg.content)) {
-          for (const b of msg.content) {
-            if (!b || typeof b !== "object") continue;
-            const blk = b as { type?: string; name?: string; id?: string; tool_use_id?: string; input?: Record<string, unknown> };
-            if (blk.type === "tool_use" && (blk.name === "Agent" || blk.name === "Task") && blk.id) {
-              const input = blk.input ?? {};
-              const subType = typeof input.subagent_type === "string" && input.subagent_type ? input.subagent_type : "unknown";
-              const desc = typeof input.description === "string" ? input.description : "";
-              agentUses.set(blk.id, { ts, type: subType, desc });
-            } else if (blk.type === "tool_result" && blk.tool_use_id && !agentResults.has(blk.tool_use_id)) {
-              agentResults.set(blk.tool_use_id, ts);
-            }
-          }
-        }
-
-        if (prompt && msg) {
-          const txt = prompt.isHuman ? prompt.parts.join("") : "";
-          if (txt.trim()) {
-            a.userPrompts++;
-            promptChars += txt.length;
-            if (txt.length > maxPrompt) maxPrompt = txt.length;
-          }
-        }
-
-        if (type === "assistant" && msg) {
-          a.assistant++;
-          const usage = (msg.usage ?? {}) as Record<string, number>;
-          const ti = usage.input_tokens || 0;
-          const to = usage.output_tokens || 0;
-          const tcw = usage.cache_creation_input_tokens || 0;
-          const tcr = usage.cache_read_input_tokens || 0;
-          a.tokIn += ti;
-          a.tokOut += to;
-          a.tokCW += tcw;
-          a.tokCR += tcr;
-
-          const model = typeof msg.model === "string" ? msg.model : null;
-          const fam = family(model);
-          let cost = 0;
-          if (fam) {
-            const [pi, po, pcw, pcr] = pricing.rates[fam];
-            cost = (ti * pi + to * po + tcw * pcw + tcr * pcr) / 1_000_000;
-          }
-          a.cost += cost;
-          if (model) modelTokens.set(model, (modelTokens.get(model) ?? 0) + ti + to + tcw + tcr);
-          if (day) {
-            dayEvents.set(day, (dayEvents.get(day) ?? 0) + 1);
-            dayCost.set(day, (dayCost.get(day) ?? 0) + cost);
-          }
-
-          if (Array.isArray(msg.content)) {
-            for (const b of msg.content) {
-              if (b && typeof b === "object" && (b as { type?: string }).type === "tool_use") {
-                const nm = (b as { name?: string }).name ?? "tool";
-                toolCounts.set(nm, (toolCounts.get(nm) ?? 0) + 1);
-                totalToolCalls++;
-              }
-            }
-          }
-        }
+      // Fold this file's aggregate in — same accumulation order as the old
+      // inline scan (files in readdir order), so results stay deterministic.
+      // `agg` may be a shared memo entry: read-only here, never mutated.
+      a.lines += agg.lines;
+      a.userPrompts += agg.userPrompts;
+      a.assistant += agg.assistant;
+      a.tokIn += agg.tokIn;
+      a.tokOut += agg.tokOut;
+      a.tokCW += agg.tokCW;
+      a.tokCR += agg.tokCR;
+      a.cost += agg.cost;
+      if (agg.first) {
+        if (!a.first || agg.first < a.first) a.first = agg.first;
+        if (!firstTs || agg.first < firstTs) firstTs = agg.first;
       }
-      closeTurn(); // flush the final turn of the session
+      if (agg.last) {
+        if (!a.last || agg.last > a.last) a.last = agg.last;
+        if (!lastTs || agg.last > lastTs) lastTs = agg.last;
+      }
+      promptChars += agg.promptChars;
+      if (agg.maxPrompt > maxPrompt) maxPrompt = agg.maxPrompt;
+      totalToolCalls += agg.toolCalls;
+      workingSec += agg.workingSec;
+      for (const [day, n] of agg.dayEvents) dayEvents.set(day, (dayEvents.get(day) ?? 0) + n);
+      for (const [day, c] of agg.dayCost) dayCost.set(day, (dayCost.get(day) ?? 0) + c);
+      for (const [model, n] of agg.modelTokens) modelTokens.set(model, (modelTokens.get(model) ?? 0) + n);
+      for (const [nm, n] of agg.toolCounts) toolCounts.set(nm, (toolCounts.get(nm) ?? 0) + n);
+      for (const m of agg.missions) allMissions.push({ seconds: m.seconds, opening: m.opening, project: a.name });
+      for (const [id, use] of agg.agentUses) agentUses.set(id, use);
+      for (const [id, ts] of agg.agentResults) if (!agentResults.has(id)) agentResults.set(id, ts);
     }
     projects.push(a);
+  }
+
+  // Drop memo entries for files that vanished from THIS logDir (deleted, or
+  // grown past SIZE_CAP), so deletions don't leak memory across rebuilds.
+  // Other roots' entries are left alone, and a failed readdir prunes nothing —
+  // a transient FS race must not wipe a warm memo.
+  if (scanned) {
+    const prefix = path.join(logDir, path.sep);
+    for (const key of fileAggCache.keys()) {
+      if (key.startsWith(prefix) && !seenFiles.has(key)) fileAggCache.delete(key);
+    }
   }
 
   const totals = {

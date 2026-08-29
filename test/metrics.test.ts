@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, appendFile, utimes } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { buildMetrics } from "../server/metrics.ts";
+import { buildMetrics, clearMetricsCache, clearMetricsFileCache } from "../server/metrics.ts";
 import { DEFAULT_PRICING, family } from "../server/pricing.ts";
 
 const line = (o: unknown) => JSON.stringify(o);
@@ -263,6 +263,49 @@ test("scaffold directories are counted but never read", async () => {
   assert.equal(m.totals.humanProjects, 1);
   assert.equal(m.totals.scaffoldProjects, 2);
   assert.equal(m.totals.tokIn, 1_000_000, "scaffold tokens must not reach the totals");
+});
+
+test("per-file aggregates are memoized on mtime+size and invalidated on growth", async () => {
+  clearMetricsCache();
+  clearMetricsFileCache();
+  const spend = (tokens: number) =>
+    line({
+      type: "assistant",
+      timestamp: "2026-07-01T10:00:00.000Z",
+      message: {
+        role: "assistant",
+        model: "claude-opus-5",
+        usage: { input_tokens: tokens },
+        content: [{ type: "text", text: "x" }],
+      },
+    });
+
+  const logDir = await corpus({ [PROJ]: { "s1.jsonl": [spend(1_000_000)] } });
+  const file = path.join(logDir, PROJ, "s1.jsonl");
+  // Pin a whole-ms mtime before each scan: the filesystem may keep sub-ms
+  // precision, so "restore the original stat mtime" would not round-trip.
+  const pinned = new Date(1700000000000);
+  await utimes(file, pinned, pinned);
+
+  const first = await buildMetrics(logDir);
+  assert.equal(first.totals.tokIn, 1_000_000);
+
+  // Same byte length, same pinned mtime, different token count: the memoized
+  // aggregate must be served, proving the bytes were not re-read. (Real
+  // transcripts are append-only, so this swap can't happen outside a test.)
+  assert.equal(spend(2_000_000).length, spend(1_000_000).length, "rewrite must not change the size");
+  await writeFile(file, spend(2_000_000));
+  await utimes(file, pinned, pinned);
+  clearMetricsCache(); // the whole-result TTL memo would otherwise mask the file memo
+  const second = await buildMetrics(logDir);
+  assert.equal(second.totals.tokIn, 1_000_000, "unchanged mtime+size must serve the memoized aggregate");
+
+  // Growth changes size (and mtime): the entry is stale and the file is
+  // re-read in full — the swapped 2M line AND the appended 500k line count.
+  await appendFile(file, "\n" + spend(500_000));
+  clearMetricsCache();
+  const third = await buildMetrics(logDir);
+  assert.equal(third.totals.tokIn, 2_500_000, "growth must invalidate and re-read the whole file");
 });
 
 test("an unreadable log dir yields empty metrics rather than throwing", async () => {
