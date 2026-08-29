@@ -1,7 +1,14 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { repoHash, sessionHash, sessionBackLink, sameRepoPage } from "../src/routes.ts";
+import {
+  repoHash,
+  sessionHash,
+  sessionBackLink,
+  sameRepoPage,
+  sessionEntryAfterNav,
+  sessionToggleNav,
+} from "../src/routes.ts";
 
 test("repoHash round-trips path/name and carries the session only when given", () => {
   const plain = repoHash("/Users/me/Projects/my repo", "my repo");
@@ -88,4 +95,33 @@ test("sameRepoPage matches only repo hashes for the same repo", () => {
   assert.ok(!sameRepoPage(repo(), `${base}#/repo?path=%2Fother&name=o`), "different repo is a different page");
   assert.ok(!sameRepoPage(`${base}#/`, repo()), "arriving from another view is a different page");
   assert.ok(!sameRepoPage(`${base}#/words`, `${base}#/search`), "non-repo hashes never match");
+});
+
+test("sessionEntryAfterNav is true only for a same-repo plain → session transition", () => {
+  const base = "http://localhost:5189/";
+  const repo = (extra = "") => `${base}#/repo?path=%2FUsers%2Fme%2Fr&name=r${extra}`;
+  // The open-push (and a Forward re-open): the entry beneath is the plain page.
+  assert.ok(sessionEntryAfterNav(repo(), repo("&session=abc")));
+  // Back to the plain page: the session entry is now forward, not current.
+  assert.ok(!sessionEntryAfterNav(repo("&session=abc"), repo()));
+  // Session-to-session: whatever lies beneath is not provably the plain page.
+  assert.ok(!sessionEntryAfterNav(repo("&session=abc"), repo("&session=def")));
+  // Plain-to-plain, arrivals from other views, deep links, other repos: no.
+  assert.ok(!sessionEntryAfterNav(repo(), repo()));
+  assert.ok(!sessionEntryAfterNav(`${base}#/`, repo("&session=abc")));
+  assert.ok(!sessionEntryAfterNav(`${base}#/words`, repo("&session=abc")));
+  assert.ok(!sessionEntryAfterNav(`${base}#/repo?path=%2Fother&name=o`, repo("&session=abc")));
+});
+
+test("sessionToggleNav keeps the stack at one session entry per repo visit", () => {
+  // First open from the plain page pushes — Back closes the transcript.
+  assert.equal(sessionToggleNav(true, false), "push");
+  // Switching while our session entry is on top replaces — N sessions, 1 entry.
+  assert.equal(sessionToggleNav(true, true), "replace");
+  // Closing our own pushed entry pops it — no duplicate plain-repo entries, no
+  // visually dead Back press, and Forward re-opens the transcript.
+  assert.equal(sessionToggleNav(false, true), "back");
+  // Closing anything else (deep link, cross-page return) mutates in place —
+  // never history.back() toward an entry that isn't provably ours.
+  assert.equal(sessionToggleNav(false, false), "replace");
 });

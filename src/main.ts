@@ -1,6 +1,6 @@
 import "./style.css";
 import { renderOverview } from "./views/overview.ts";
-import { renderRepoDetail } from "./views/repoDetail.ts";
+import { renderRepoDetail, noteHashNav } from "./views/repoDetail.ts";
 import { renderProfile } from "./views/profile.ts";
 import { renderDataViz } from "./views/dataViz.ts";
 import { renderJourney } from "./views/journey.ts";
@@ -142,6 +142,11 @@ document.getElementById("settings-btn")!.addEventListener("click", () => {
 });
 
 window.addEventListener("hashchange", (e) => {
+  // Let the repo page re-evaluate whether the entry beneath the reader is its
+  // own pushed session entry, which decides how the next close navigates
+  // (routes.ts sessionToggleNav states the policy). The periodic refresh
+  // re-renders without navigating, so it never lands here.
+  noteHashNav(e.oldURL, e.newURL);
   // Toggling a transcript open/closed navigates between two hashes of the
   // same repo page; keep the scroll position so closing a session doesn't
   // jump back to the top of the list. (Opening still lands on the transcript

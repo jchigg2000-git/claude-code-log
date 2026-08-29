@@ -4,7 +4,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { countLines, parseTranscriptText, readTranscriptCapped } from "../server/jsonl.ts";
+import { parseTranscriptText, readTranscriptCapped } from "../server/jsonl.ts";
 
 const line = (o: unknown) => JSON.stringify(o);
 
@@ -132,12 +132,6 @@ test("a missing or non-string timestamp becomes null, not a crash", () => {
     parseTranscriptText(raw).map((e) => e.ts),
     [null, null],
   );
-});
-
-test("countLines ignores blank and whitespace-only lines", () => {
-  assert.equal(countLines("a\nb\n\n   \nc"), 3);
-  assert.equal(countLines(""), 0);
-  assert.equal(countLines("\n\n"), 0);
 });
 
 // ── readTranscriptCapped ─────────────────────────────────────────────────────
