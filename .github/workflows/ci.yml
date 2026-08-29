@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Node 24+ is a hard requirement, not a preference: the suite runs the
+      # TypeScript sources directly via `node --test test/*.test.ts`, which
+      # needs native type-stripping.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Test
+        run: npm test
+
+      # Also runs the typecheck, so this proves the bundle builds on top of it.
+      - name: Build
+        run: npm run build
+
+      # The app's own pitch is a contained, read-only surface; a shipped
+      # advisory in the dev server undercuts it. Production deps must be clean.
+      - name: Audit production dependencies
+        run: npm audit --omit=dev --audit-level=high

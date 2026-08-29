@@ -2,7 +2,7 @@
 
 A local dashboard for browsing **and analyzing** your Claude Code history across every repo on your machine.
 
-> Prefer pictures? [`docs/overview.html`](docs/overview.html) is a one-page visual overview — open it straight from a checkout, no server needed.
+![The Repos overview, running on the generated sample corpus](docs/screenshots/repos.png)
 
 It scans your Claude Code session logs, crawls your repositories, and joins the two. From there you can drill into any repo to read its project specs (CLAUDE.md, README, manifests, memory index) alongside the parsed transcripts of every session run there — or step back and see the whole corpus at once: spend, token flow, the subagent fleet, and a scroll-driven retelling of the entire journey.
 
@@ -28,7 +28,7 @@ It scans your Claude Code session logs, crawls your repositories, and joins the 
 - **Vite + TypeScript**, vanilla DOM — no UI framework. `marked` renders markdown; everything else is hand-rolled (the charts and the journey particle field are plain SVG/Canvas, no charting library).
 - A thin **read-only filesystem API** lives under `server/` (`api.ts` dispatches the routes; `fsScan`, `journey`, `jsonl`, `metrics`, `search`, `words`, and `paths` do the work) and is wired into the Vite **dev and preview** servers as connect middleware (`vite.config.ts`), so the whole app stays **one process**. The browser never touches the filesystem directly; all access goes through `/api/*`.
 
-![The Repos overview, running on the generated sample corpus](docs/screenshots/repos.png)
+> **More pictures:** [`docs/overview.html`](docs/overview.html) is a one-page visual overview of the whole app. GitHub serves it as raw source — open the file from a checkout to see it rendered; it needs no server.
 
 ## Run
 
@@ -173,6 +173,16 @@ npm run typecheck
 ```
 
 `npm run build` runs the typecheck before bundling, so a type error fails the build rather than shipping.
+
+## Contributing
+
+Issues and pull requests are welcome. There's no formal process: open an issue
+describing what you hit, or send a PR with `npm run typecheck`, `npm test`, and
+`npm run build` green — CI runs exactly those three on Node 24.
+
+This is a personal tool published because it might be useful, not a project
+seeking maintainers, so responses may be slow and features outside the read-only
+local-first posture described above are likely to be declined.
 
 ## License
 

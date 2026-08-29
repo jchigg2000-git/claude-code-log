@@ -170,3 +170,8 @@ desktop.ini
 CLAUDE.md
 ROADMAP.md
 DECISIONS.md
+
+# Editor / IDE local state
+.vscode/
+.idea/
+*.swp
