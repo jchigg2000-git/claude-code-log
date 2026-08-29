@@ -2,6 +2,7 @@ import { fetchMetrics } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear, errorBox, statStrip } from "../dom.ts";
 import { areaChart, barList, logBars, compact, money } from "../charts.ts";
+import { fitChart } from "../fitChart.ts";
 import { repoHash, sessionHash } from "../routes.ts";
 import type { Metrics, AgentSummary, MissionStat } from "../types.ts";
 
@@ -196,9 +197,11 @@ function agentSection(a: AgentSummary, workingHours: number, topMissions: Missio
   });
 
   // Dispatch cadence over time.
-  const cadence = areaChart(
-    a.byDay.map((d) => ({ date: d.date, value: d.count })),
-    { height: 180, peaks: 3, first: a.byDay[0]?.date, last: a.byDay.at(-1)?.date },
+  const cadence = fitChart(el("div"), (w) =>
+    areaChart(
+      a.byDay.map((d) => ({ date: d.date, value: d.count })),
+      { height: 180, peaks: 3, first: a.byDay[0]?.date, last: a.byDay.at(-1)?.date, width: w },
+    ),
   );
 
   // What that time means — measured, with the main thread included.
@@ -346,14 +349,17 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
       `Activity on ${m.span.activeDays} of ${m.span.days} calendar days. Biggest single day — ${
         busiest ? `${busiest.date}, ${compact(busiest.events)} transcript events` : "—"
       }.`,
-      areaChart(
-        m.byDay.map((d) => ({ date: d.date, value: d.events })),
-        {
-          height: 240,
-          peaks: 3,
-          first: m.span.first?.slice(0, 10),
-          last: m.span.last?.slice(0, 10),
-        },
+      fitChart(el("div"), (w) =>
+        areaChart(
+          m.byDay.map((d) => ({ date: d.date, value: d.events })),
+          {
+            height: 240,
+            peaks: 3,
+            first: m.span.first?.slice(0, 10),
+            last: m.span.last?.slice(0, 10),
+            width: w,
+          },
+        ),
       ),
     ),
   );
@@ -364,9 +370,11 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
       "Spend, by day",
       `≈ ${money(t.cost)} estimated total — about ${money(perDay)} per active day. ` +
         `Token usage from the transcripts priced at public list rates.`,
-      areaChart(
-        m.byDay.map((d) => ({ date: d.date, value: d.cost })),
-        { height: 200, peaks: 3, fmt: money, first: m.span.first?.slice(0, 10), last: m.span.last?.slice(0, 10) },
+      fitChart(el("div"), (w) =>
+        areaChart(
+          m.byDay.map((d) => ({ date: d.date, value: d.cost })),
+          { height: 200, peaks: 3, fmt: money, first: m.span.first?.slice(0, 10), last: m.span.last?.slice(0, 10), width: w },
+        ),
       ),
     ),
   );

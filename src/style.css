@@ -80,6 +80,36 @@ a:hover { text-decoration: underline; }
 }
 .gear:hover { color: var(--accent); transform: rotate(45deg); }
 
+/* Below ~700px the nav becomes a horizontal scroll strip: pills never wrap or
+   shrink — they slide. Brand/search/gear hold the row; the nav absorbs the
+   deficit and scrolls (syncNav keeps the active pill in view). The scrollbar
+   is hidden but the strip stays touch/trackpad-scrollable — with the app
+   hard-declared color-scheme: dark, a UA scrollbar squeezed under 30px pills
+   is noise, not affordance. Above 700px nothing here applies. */
+@media (max-width: 700px) {
+  .topbar { padding: 12px 14px; }
+  .brand { flex: none; white-space: nowrap; }
+  .nav {
+    flex: 1 1 0;
+    min-width: 0;
+    margin-left: 10px; /* auto margin is inert once the strip flexes to fill */
+    margin-right: 12px;
+    overflow-x: auto;
+    scrollbar-width: none; /* Firefox */
+  }
+  .nav::-webkit-scrollbar { display: none; } /* Chrome/Safari */
+  /* Fade clipped pills at the strip's edges: reads as "more this way" in
+     place of the hidden scrollbar, and keeps a half-pill from butting into
+     the brand or search box. */
+  .nav {
+    mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+    -webkit-mask-image: linear-gradient(to right, transparent, #000 14px, #000 calc(100% - 14px), transparent);
+  }
+  .nav a { flex: none; white-space: nowrap; }
+  .search-box { flex: 0 1 auto; min-width: 78px; }
+  .gear { flex: none; }
+}
+
 #app { max-width: 1180px; margin: 0 auto; padding: 28px 24px 80px; }
 
 .page-head { margin-bottom: 22px; }

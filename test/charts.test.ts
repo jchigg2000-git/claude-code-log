@@ -1,7 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
-import { esc, peakLabelWidth, resolvePeakLabels } from "../src/charts.ts";
+import {
+  esc,
+  graphPad,
+  peakAnchor,
+  peakAnchorBand,
+  peakLabelSpan,
+  peakLabelWidth,
+  resolvePeakLabels,
+  timelineGutter,
+} from "../src/charts.ts";
 
 test("esc neutralizes markup in element-content position", () => {
   assert.equal(esc("<script>1 & 2</script>"), "&lt;script&gt;1 &amp; 2&lt;/script&gt;");
@@ -65,4 +74,66 @@ test("resolvePeakLabels boxes extend from the text-anchor, not around it", () =>
   const endC = { x: 500, y: 0, text: "0123456789", priority: 2, anchor: "end" as const };
   const startC = { x: 510, y: 0, text: "0123456789", priority: 1, anchor: "start" as const };
   assert.deepEqual(resolvePeakLabels([endC, startC], { charW: 10 }), [endC, startC]);
+});
+
+// ── Width-aware geometry — charts are rebuilt per container width ──
+
+test("peakAnchorBand keeps the historical 160-unit band at the default widths", () => {
+  assert.equal(peakAnchorBand(1000), 160);
+  assert.equal(peakAnchorBand(1200), 160);
+});
+
+test("peakAnchorBand shrinks on narrow charts so the bands still partition the axis", () => {
+  assert.equal(peakAnchorBand(320), 320 / 3);
+  for (const w of [320, 480, 700, 1000]) {
+    assert.ok(2 * peakAnchorBand(w) <= w, `start+end bands overlap at W=${w}`);
+  }
+});
+
+test("peakAnchor matches the historical constants at the default width", () => {
+  assert.equal(peakAnchor(100, 1000), "start");
+  assert.equal(peakAnchor(500, 1000), "middle");
+  assert.equal(peakAnchor(900, 1000), "end");
+});
+
+test("peak labels stay inside a 320-wide frame wherever the peak lands", () => {
+  const W = 320;
+  const text = "Aug 12 · $1,234"; // the widest label shape (money-formatted)
+  for (const cx of [0, 40, 106, 160, 214, 280, 320]) {
+    const anchor = peakAnchor(cx, W);
+    // areaChart's inward nudge for edge-anchored labels.
+    const x = anchor === "end" ? cx - 6 : anchor === "start" ? cx + 6 : cx;
+    const [l, r] = peakLabelSpan({ x, y: 0, text, priority: 1, anchor });
+    assert.ok(l >= 0 && r <= W, `${anchor} label at cx=${cx} spans [${l}, ${r}] outside [0, ${W}]`);
+  }
+});
+
+test("resolvePeakLabels stays consistent as charW shrinks", () => {
+  // The same pair 60 units apart: tighter glyphs clear, wider glyphs collide.
+  const at = (x: number, priority: number) => ({
+    x,
+    y: 0,
+    text: "0123456789",
+    priority,
+    anchor: "middle" as const,
+  });
+  const pair = [at(100, 2), at(160, 1)];
+  assert.equal(resolvePeakLabels(pair, { charW: 4 }).length, 2);
+  assert.equal(resolvePeakLabels(pair, { charW: 7.2 }).length, 1);
+});
+
+test("timelineGutter pins the 128-unit gutter at the default width", () => {
+  assert.equal(timelineGutter(1000), 128);
+});
+
+test("timelineGutter floors on narrow charts but never eats the plot", () => {
+  assert.equal(timelineGutter(480), 76);
+  assert.equal(timelineGutter(320), 76);
+  assert.ok(timelineGutter(320) < 320 / 3);
+});
+
+test("graphPad pins 56 at the default width and floors on narrow frames", () => {
+  assert.equal(graphPad(1200), 56);
+  assert.equal(graphPad(1000), (1000 * 56) / 1200);
+  assert.equal(graphPad(320), 24);
 });

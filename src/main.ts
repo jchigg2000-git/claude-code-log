@@ -66,6 +66,16 @@ function syncNav(pathPart: string): void {
         pathPart !== "/session");
     a.classList.toggle("active", active);
   }
+  // Below the 700px breakpoint the nav is a horizontal scroll strip — slide
+  // the active pill into view on navigation. Guarded on real overflow so the
+  // desktop layout (where the nav never scrolls) is untouched; block:nearest
+  // keeps this from ever scrolling the page itself.
+  const nav = document.querySelector<HTMLElement>(".topbar .nav");
+  if (nav && nav.scrollWidth > nav.clientWidth) {
+    nav
+      .querySelector<HTMLElement>("a.active")
+      ?.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }
 }
 
 // ── Periodic refresh ────────────────────────────────────────────────────────

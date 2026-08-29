@@ -2,6 +2,7 @@ import { fetchOverview, fetchMetrics } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear, relativeTime, errorBox, stat } from "../dom.ts";
 import { areaChart, compact, money } from "../charts.ts";
+import { fitChart } from "../fitChart.ts";
 import { repoHash } from "../routes.ts";
 import type { RepoSummary, OrphanLog, Metrics } from "../types.ts";
 
@@ -28,9 +29,11 @@ function populateHero(hero: HTMLElement, m: Metrics): void {
       ),
       el("span", { class: "hero-cta" }, "Full data viz →"),
     ),
-    areaChart(
-      m.byDay.map((d) => ({ date: d.date, value: d.events })),
-      { bare: true, height: 96, peaks: 2 },
+    fitChart(el("div"), (w) =>
+      areaChart(
+        m.byDay.map((d) => ({ date: d.date, value: d.events })),
+        { bare: true, height: 96, peaks: 2, width: w },
+      ),
     ),
   );
 }

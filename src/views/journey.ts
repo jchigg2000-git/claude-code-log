@@ -2,6 +2,7 @@ import { fetchJourney, fetchMetrics } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear, relativeTime, errorBox } from "../dom.ts";
 import { forceGraph, sloppyTimeline, compact, money, type GraphPick } from "../charts.ts";
+import { fitChart } from "../fitChart.ts";
 import { createJourneyField, type FleetBucket, type SceneId, type VisitSeed } from "./journey-canvas.ts";
 import type { Journey, JourneyEdge, JourneyNode, JourneyVisit, Metrics } from "../types.ts";
 
@@ -442,14 +443,21 @@ export async function renderJourney(host: HTMLElement): Promise<void> {
         `warmer = more recently touched; thicker edge = a path walked more often. ` +
         `Solid edges are explicit; faint dashed ones are inferred leaps. Click anything.`,
     ),
-    el("div", { class: "jn-graph-wrap" }, forceGraph(j.nodes, j.edges, { onPick: onGraphPick }), panel),
+    el(
+      "div",
+      { class: "jn-graph-wrap" },
+      fitChart(el("div"), (w) => forceGraph(j.nodes, j.edges, { onPick: onGraphPick, width: w })),
+      panel,
+    ),
     el("h3", { class: "jny-tl-head" }, "Every visit, threaded in time"),
     el(
       "p",
       { class: "jny-lede" },
       `The crossing lines are the point — the jumping around is the work, not noise to flatten out.`,
     ),
-    sloppyTimeline(j.visits, { first: j.first, last: j.last, onPick: (v) => renderVisit(panel, v) }),
+    fitChart(el("div"), (w) =>
+      sloppyTimeline(j.visits, { first: j.first, last: j.last, onPick: (v) => renderVisit(panel, v), width: w }),
+    ),
   );
 
   // ── Today / closer ──────────────────────────────────────────────────────────

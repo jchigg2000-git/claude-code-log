@@ -68,6 +68,9 @@ function warmth(f: number): string {
 
 interface AreaOpts {
   height?: number;
+  /** ViewBox width. Charts are mounted via fitChart so one viewBox unit
+   * renders ≈ one CSS pixel and label text keeps its nominal size. */
+  width?: number;
   /** Annotate the N tallest points with date + value. */
   peaks?: number;
   /** Value formatter for peak labels. */
@@ -102,11 +105,27 @@ export function peakLabelWidth(text: string, charW = PEAK_CHAR_W): number {
 }
 
 /** Horizontal [left, right] span of a candidate's box given its text-anchor. */
-function labelSpan(c: PeakLabelCandidate, charW: number): [number, number] {
+export function peakLabelSpan(c: PeakLabelCandidate, charW = PEAK_CHAR_W): [number, number] {
   const w = peakLabelWidth(c.text, charW);
   if (c.anchor === "start") return [c.x, c.x + w];
   if (c.anchor === "end") return [c.x - w, c.x];
   return [c.x - w / 2, c.x + w / 2];
+}
+
+/** Width of the edge band inside which a peak label is start/end-anchored so
+ * it can't clip the frame. 160 units at the default W=1000 (the historical
+ * constant); on narrower charts it shrinks to a third of the width so the
+ * three bands always partition the axis. Labels stay 13 *viewBox-unit* text
+ * at every W — fitChart makes units ≈ CSS px — so PEAK_CHAR_W is
+ * width-independent and the collision math needs no rescaling. */
+export function peakAnchorBand(W: number): number {
+  return Math.min(160, W / 3);
+}
+
+/** Text-anchor for a peak label at x=cx on a W-unit-wide chart. */
+export function peakAnchor(cx: number, W: number): PeakLabelCandidate["anchor"] {
+  const band = peakAnchorBand(W);
+  return cx > W - band ? "end" : cx < band ? "start" : "middle";
 }
 
 /**
@@ -126,9 +145,9 @@ export function resolvePeakLabels<T extends PeakLabelCandidate>(
   const gap = opts.gap ?? 6;
   const kept: T[] = [];
   for (const c of [...candidates].sort((a, b) => b.priority - a.priority)) {
-    const [l0, r0] = labelSpan(c, charW);
+    const [l0, r0] = peakLabelSpan(c, charW);
     const clear = kept.every((k) => {
-      const [l1, r1] = labelSpan(k, charW);
+      const [l1, r1] = peakLabelSpan(k, charW);
       return r0 + gap <= l1 || l0 >= r1 + gap;
     });
     if (clear) kept.push(c);
@@ -141,7 +160,7 @@ export function areaChart(
   series: { date: string; value: number }[],
   opts: AreaOpts = {},
 ): HTMLElement {
-  const W = 1000;
+  const W = opts.width ?? 1000;
   const H = opts.height ?? 220;
   const padX = 8;
   const padTop = opts.bare ? 6 : 26;
@@ -166,8 +185,7 @@ export function areaChart(
   // pass so adjacent-day peaks don't render overlapping captions.
   const cands = peakIdx.map((i) => {
     const cx = x(i);
-    const anchor: PeakLabelCandidate["anchor"] =
-      cx > W - 160 ? "end" : cx < 160 ? "start" : "middle";
+    const anchor = peakAnchor(cx, W);
     return {
       i,
       x: anchor === "end" ? cx - 6 : anchor === "start" ? cx + 6 : cx,
@@ -309,6 +327,15 @@ export type GraphPick =
 interface GraphOpts {
   onPick?: (p: GraphPick) => void;
   height?: number;
+  /** ViewBox width — see AreaOpts.width. */
+  width?: number;
+}
+
+/** Frame padding for the force graph: 56 units at the default W=1200, scaled
+ * down proportionally on narrow charts (floored so labels never touch the
+ * edge) — a fixed 56 would eat a third of a phone-width frame. */
+export function graphPad(W: number): number {
+  return Math.max(24, Math.min(56, (W * 56) / 1200));
 }
 
 /**
@@ -324,7 +351,7 @@ export function forceGraph(
   edges: JourneyEdge[],
   opts: GraphOpts = {},
 ): HTMLElement {
-  const W = 1200;
+  const W = opts.width ?? 1200;
   const H = opts.height ?? 720;
   const idx = new Map(nodes.map((n, i) => [n.id, i]));
   const N = nodes.length;
@@ -404,7 +431,7 @@ export function forceGraph(
 
   // Fit to the viewBox, then centre the cluster so the freed space is shared
   // evenly on both axes instead of pooling against the top-left padding.
-  const pad = 56;
+  const pad = graphPad(W);
   const xs = pos.map((p) => p.x);
   const ys = pos.map((p) => p.y);
   const minX = Math.min(...xs);
@@ -429,6 +456,9 @@ export function forceGraph(
   // to actually fill the canvas instead of clumping. Radii + a label-aware
   // gap; clamp inside the frame each pass.
   const rad = nodes.map((n) => radius(n));
+  // Label-aware breathing room between circles: 44 units at the default
+  // W=1200, proportionally less on narrow frames so the pass can converge.
+  const labelGap = Math.max(22, Math.min(44, (W * 44) / 1200));
   const COLL_ITERS = 28;
   for (let it = 0; it < COLL_ITERS; it++) {
     for (let i = 0; i < N; i++) {
@@ -436,7 +466,7 @@ export function forceGraph(
         let vx = pos[j].x - pos[i].x;
         let vy = pos[j].y - pos[i].y;
         let d = Math.hypot(vx, vy);
-        const gap = rad[i] + rad[j] + 44;
+        const gap = rad[i] + rad[j] + labelGap;
         if (d < 0.01) {
           vx = (i % 2 ? 1 : -1);
           vy = i % 3 ? 1 : -1;
@@ -574,6 +604,14 @@ export function forceGraph(
   return box;
 }
 
+/** Left gutter (the project-label column) of the sloppy timeline: 128 units
+ * at the default W=1000, proportionally narrower on small charts — floored so
+ * a truncated name still fits — because a fixed 128 would be 40% of a
+ * phone-width frame. Labels themselves shrink via `trunc`, not font-size. */
+export function timelineGutter(W: number): number {
+  return Math.round(Math.min(128, Math.max(76, W * 0.128)));
+}
+
 /**
  * A deliberately dense, non-linear timeline of the window. One marker per
  * project "visit" (a contiguous run of work): x = time, y = which project
@@ -585,14 +623,20 @@ export function forceGraph(
  */
 export function sloppyTimeline(
   visits: JourneyVisit[],
-  opts: { first: string | null; last: string | null; onPick?: (v: JourneyVisit) => void } = {
+  opts: {
+    first: string | null;
+    last: string | null;
+    onPick?: (v: JourneyVisit) => void;
+    /** ViewBox width — see AreaOpts.width. */
+    width?: number;
+  } = {
     first: null,
     last: null,
   },
 ): HTMLElement {
-  const W = 1000;
+  const W = opts.width ?? 1000;
   const H = 380;
-  const padL = 128; // left gutter holds the project (y-axis) labels
+  const padL = timelineGutter(W); // left gutter holds the project (y-axis) labels
   const padR = 18;
   const padTop = 26;
   const padBot = 34;
@@ -625,6 +669,10 @@ export function sloppyTimeline(
   const jitter = (ts: string) => ((Date.parse(ts) / 1000) % 47) - 23;
 
   const trunc = (s: string, n: number) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+  // 17 chars fill the full 128-unit gutter (10px monospace ≈ 6.5 units/char);
+  // scale with the gutter so a narrow chart truncates names harder rather
+  // than letting them spill across the plot.
+  const gutterChars = Math.max(9, Math.floor((padL / 128) * 17));
 
   const pt = visits.map((v) => ({ vx: x(v.ts), vy: bandOf(v.project) + jitter(v.ts), v }));
 
@@ -644,7 +692,7 @@ export function sloppyTimeline(
       const label = show
         ? `<text class="jn-ylabel" data-proj-band="${j}" x="${padL - 10}" y="${(by + 3.5).toFixed(
             1,
-          )}" text-anchor="end">${esc(trunc(nameOf.get(p) ?? p, 17))}</text>`
+          )}" text-anchor="end">${esc(trunc(nameOf.get(p) ?? p, gutterChars))}</text>`
         : "";
       return line + label;
     })
@@ -667,10 +715,14 @@ export function sloppyTimeline(
   const labelIdx = [...visits.keys()]
     .sort((a, b) => visits[b].commands - visits[a].commands)
     .slice(0, 9);
+  // Same edge-band idea as peakAnchor: the historical 170/100 constants at
+  // W=1000, shrunk on narrow charts so the bands keep partitioning the axis.
+  const endBand = Math.min(170, W / 3);
+  const startBand = padL + Math.min(100, W / 5);
   const labels = labelIdx
     .map((i) => {
       const p = pt[i];
-      const anchor = p.vx > W - 170 ? "end" : p.vx < padL + 100 ? "start" : "middle";
+      const anchor = p.vx > W - endBand ? "end" : p.vx < startBand ? "start" : "middle";
       return `<text class="jn-tlabel" x="${p.vx.toFixed(1)}" y="${(p.vy - 11).toFixed(
         1,
       )}" text-anchor="${anchor}">${esc(p.v.name)}</text>`;
