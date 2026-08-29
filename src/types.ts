@@ -83,6 +83,9 @@ export interface SearchResults {
 export interface ProjectMetric {
   name: string;
   dirName: string;
+  /** Real path of the crawled repo this project's log dir matched — the row's
+   *  #/repo link target. null when nothing matched (orphan logs): no dead links. */
+  repoPath: string | null;
   sessions: number;
   userPrompts: number;
   assistant: number;
@@ -173,6 +176,8 @@ export interface MissionStat {
   seconds: number;
   opening: string;
   project: string;
+  /** Absolute transcript path — the card's #/session link target. */
+  file: string;
 }
 
 export interface Metrics {

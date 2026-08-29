@@ -1,7 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { repoKeysFor } from "./fsScan.ts";
-import { resolveProjectName } from "./projectNames.ts";
+import { matchRepo, resolveProjectName } from "./projectNames.ts";
 import { family, loadPricing, type LoadedPricing } from "./pricing.ts";
 import { ttlMemo } from "./memo.ts";
 
@@ -21,6 +21,10 @@ import { ttlMemo } from "./memo.ts";
 export interface ProjectMetric {
   name: string;
   dirName: string;
+  /** Real path of the crawled repo this project's log dir matched (the same
+   *  matchRepo join the naming ladder uses), so the row can link into #/repo.
+   *  null when nothing matched — orphan logs have no repo page to land on. */
+  repoPath: string | null;
   sessions: number;
   userPrompts: number;
   assistant: number;
@@ -80,6 +84,9 @@ export interface MissionStat {
   seconds: number;
   opening: string;
   project: string;
+  /** Absolute path of the transcript the turn lives in, so the card can link
+   *  into #/session — the same shape /api/session takes and search results carry. */
+  file: string;
 }
 
 export interface Metrics {
@@ -181,6 +188,7 @@ function humanPrompt(msg: Record<string, unknown> | null): { isHuman: boolean; p
 interface Acc {
   dirName: string;
   name: string;
+  repoPath: string | null;
   sessions: number;
   lines: number;
   userPrompts: number;
@@ -198,6 +206,7 @@ function toProjectMetric(a: Acc): ProjectMetric {
   return {
     name: a.name,
     dirName: a.dirName,
+    repoPath: a.repoPath,
     sessions: a.sessions,
     userPrompts: a.userPrompts,
     assistant: a.assistant,
@@ -223,9 +232,10 @@ export function clearMetricsCache(): void {
  * for the process lifetime — a pricing edit already requires a restart, and a
  * restart also empties this memo, so baking `cost` in here is sound).
  *
- * Names are deliberately absent: `resolveProjectName` depends on `repoRoot`,
- * so missions carry only `{seconds, opening}` and the project name is stamped
- * at merge time — one FileAgg serves every (logDir, repoRoot) cache key.
+ * Names and paths are deliberately absent: `resolveProjectName` depends on
+ * `repoRoot`, so missions carry only `{seconds, opening}` and the project name
+ * and transcript path are stamped at merge time — one FileAgg serves every
+ * (logDir, repoRoot) cache key.
  *
  * AGENT PAIRING INVARIANT (verified, do not weaken silently): a dispatch's
  * `tool_result` can arrive in a later MESSAGE, but never in a file that lacks
@@ -534,6 +544,9 @@ async function computeMetrics(
     const a: Acc = {
       dirName,
       name: resolveProjectName(dirName, repoKeys, repoRoot),
+      // The same join resolveProjectName runs internally, kept here for the
+      // repo's real path — the client's link target. Null = orphan, no link.
+      repoPath: matchRepo(dirName, repoKeys)?.repo.path ?? null,
       sessions: 0,
       lines: 0,
       userPrompts: 0,
@@ -596,7 +609,7 @@ async function computeMetrics(
       for (const [day, c] of agg.dayCost) dayCost.set(day, (dayCost.get(day) ?? 0) + c);
       for (const [model, n] of agg.modelTokens) modelTokens.set(model, (modelTokens.get(model) ?? 0) + n);
       for (const [nm, n] of agg.toolCounts) toolCounts.set(nm, (toolCounts.get(nm) ?? 0) + n);
-      for (const m of agg.missions) allMissions.push({ seconds: m.seconds, opening: m.opening, project: a.name });
+      for (const m of agg.missions) allMissions.push({ seconds: m.seconds, opening: m.opening, project: a.name, file: full });
       for (const [id, use] of agg.agentUses) agentUses.set(id, use);
       for (const [id, ts] of agg.agentResults) if (!agentResults.has(id)) agentResults.set(id, ts);
     }

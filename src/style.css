@@ -498,6 +498,11 @@ a.vz-bar-row:hover .vz-bar-label { color: var(--accent); }
   border-radius: var(--radius);
   padding: 12px 16px;
 }
+/* Mission cards are links into their transcript; same affordance family as
+   a.vz-bar-row — no underline, an accent cue on hover (here the card border,
+   since the type chip inside is already accent-tinted). */
+a.vz-mission { color: var(--text); }
+a.vz-mission:hover { text-decoration: none; border-color: var(--accent); }
 .vz-mission-rank { font-family: ui-monospace, monospace; color: var(--muted); font-size: 0.95rem; font-weight: 700; padding-top: 1px; }
 .vz-mission-body { flex: 1; min-width: 0; }
 .vz-mission-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }

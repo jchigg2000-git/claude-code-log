@@ -2,6 +2,7 @@ import { fetchMetrics } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear, errorBox, statStrip } from "../dom.ts";
 import { areaChart, barList, logBars, compact, money } from "../charts.ts";
+import { repoHash, sessionHash } from "../routes.ts";
 import type { Metrics, AgentSummary, MissionStat } from "../types.ts";
 
 /**
@@ -167,13 +168,17 @@ function agentSection(a: AgentSummary, workingHours: number, topMissions: Missio
 
   // Longest missions — the heaviest single MAIN-THREAD turns (one prompt, then
   // Claude running for a stretch). These dwarf any single sub-agent, which cap
-  // out around 25 min.
+  // out around 25 min. Each card links into its transcript; `back=viz` routes
+  // the session view's back link here (sessionBackLink). Same never-a-dead-link
+  // rule as barList: no file, no anchor — the card just stays inert.
   const missions = el("div", { class: "vz-missions" });
   topMissions.forEach((m, i) => {
     missions.append(
       el(
-        "div",
-        { class: "vz-mission" },
+        m.file ? "a" : "div",
+        m.file
+          ? { class: "vz-mission", href: sessionHash(m.file, { label: m.project, back: "viz" }) }
+          : { class: "vz-mission" },
         el("span", { class: "vz-mission-rank" }, `#${i + 1}`),
         el(
           "div",
@@ -428,6 +433,10 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
           )} tokens`,
           tone: grouped ? "user" : "accent",
           grouped,
+          // The headline figure as an entry point: each row opens its repo's
+          // session list. Orphan logs (repoPath null) have no repo page, so
+          // they stay plain rows rather than dead links.
+          href: p.repoPath ? repoHash(p.repoPath, p.name) : undefined,
         })),
       ),
     ),

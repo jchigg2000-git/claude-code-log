@@ -2,6 +2,7 @@ import { fetchOverview, fetchMetrics } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear, relativeTime, errorBox, stat } from "../dom.ts";
 import { areaChart, compact, money } from "../charts.ts";
+import { repoHash } from "../routes.ts";
 import type { RepoSummary, OrphanLog, Metrics } from "../types.ts";
 
 function heroStat(value: string, label: string): HTMLElement {
@@ -35,7 +36,7 @@ function populateHero(hero: HTMLElement, m: Metrics): void {
 }
 
 function repoCard(r: RepoSummary): HTMLElement {
-  const href = `#/repo?path=${encodeURIComponent(r.path)}&name=${encodeURIComponent(r.name)}`;
+  const href = repoHash(r.path, r.name);
   const inactive = r.sessionCount === 0;
   return el(
     "a",

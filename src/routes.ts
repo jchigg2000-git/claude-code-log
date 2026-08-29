@@ -16,14 +16,35 @@ export function repoHash(repoPath: string, name: string, sessionId?: string): st
 }
 
 /**
+ * Hash for the standalone #/session transcript view. `label` is the display
+ * path the header shows, `back` names the origin view (see
+ * {@link sessionBackLink}), and `q` carries the search query so results can be
+ * restored. Params are emitted in the order the views' hand-built links always
+ * used — file, q, label, back — so retrofitting them onto this helper changes
+ * no byte of any href. An absent or empty option is omitted outright rather
+ * than serialized as an empty param.
+ */
+export function sessionHash(
+  file: string,
+  opts: { label?: string; back?: string; q?: string } = {},
+): string {
+  const params = new URLSearchParams({ file });
+  if (opts.q) params.set("q", opts.q);
+  if (opts.label) params.set("label", opts.label);
+  if (opts.back) params.set("back", opts.back);
+  return `#/session?${params.toString()}`;
+}
+
+/**
  * Where a #/session view's back link points, and what it says. `back` names
- * the origin view (words.ts and search.ts tag their links); absent/unknown
- * falls back to search — with `q` restored when the link carries one — so
- * pre-`back` deep links keep working. The label states the true destination:
- * "results" only when there is a query to return to.
+ * the origin view (words.ts, search.ts and dataViz.ts tag their links);
+ * absent/unknown falls back to search — with `q` restored when the link
+ * carries one — so pre-`back` deep links keep working. The label states the
+ * true destination: "results" only when there is a query to return to.
  */
 export function sessionBackLink(back: string | null, q: string | null): { href: string; label: string } {
   if (back === "words") return { href: "#/words", label: "← Back to Words" };
+  if (back === "viz") return { href: "#/viz", label: "← Back to Data Viz" };
   if (q) return { href: `#/search?q=${encodeURIComponent(q)}`, label: "← Back to results" };
   return { href: "#/search", label: "← Back to search" };
 }

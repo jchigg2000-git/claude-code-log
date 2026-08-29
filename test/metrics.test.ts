@@ -250,6 +250,11 @@ test("longest missions drop harness noise and bare approvals", async () => {
     ["rework the pagination cursor"],
     "bare approvals, harness tags and Caveat: injections are not missions",
   );
+  assert.equal(
+    m.topMissions[0].file,
+    path.join(logDir, PROJ, "s1.jsonl"),
+    "a mission must carry its transcript's absolute path, for linking into #/session",
+  );
 });
 
 test("scaffold directories are counted but never read", async () => {
@@ -341,9 +346,15 @@ test("projects are named from the repo crawl, not by decoding, outside ~/Project
     [enc(path.join(repoRoot, "ferry-scheduler"))]: { "s1.jsonl": [spend(1_000_000)] },
   });
 
-  const named = (await buildMetrics(logDir, repoRoot)).topByCost.map((p) => p.name);
+  const m = await buildMetrics(logDir, repoRoot);
+  const named = m.topByCost.map((p) => p.name);
   assert.deepEqual(named, ["mapkit-demo", "ferry-scheduler"]);
   assert.ok(!named.includes("demo"), "must not truncate at the last dash");
+  assert.deepEqual(
+    m.topByCost.map((p) => p.repoPath),
+    [path.join(repoRoot, "mapkit-demo"), path.join(repoRoot, "ferry-scheduler")],
+    "a crawled match must carry the repo's real path, for linking into #/repo",
+  );
 });
 
 test("without a repo root, names degrade to verbose but never truncate", async () => {
@@ -368,7 +379,8 @@ test("without a repo root, names degrade to verbose but never truncate", async (
     },
   });
 
-  const name = (await buildMetrics(logDir)).topByCost[0].name;
-  assert.ok(name.endsWith("mapkit-demo"), `expected the full repo name in ${name}`);
-  assert.notEqual(name, "demo");
+  const p = (await buildMetrics(logDir)).topByCost[0];
+  assert.ok(p.name.endsWith("mapkit-demo"), `expected the full repo name in ${p.name}`);
+  assert.notEqual(p.name, "demo");
+  assert.equal(p.repoPath, null, "no crawl means no match — the row must not invent a link target");
 });

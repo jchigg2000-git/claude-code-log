@@ -1,6 +1,7 @@
 import { fetchWords } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear, relativeTime, errorBox } from "../dom.ts";
+import { sessionHash } from "../routes.ts";
 import type { WordCategory, WordEntry } from "../types.ts";
 
 const CATEGORY_LABEL: Record<WordCategory, string> = {
@@ -38,7 +39,7 @@ function betweenLine(e: WordEntry): string {
 
 function entryCard(e: WordEntry): HTMLElement {
   // `back=words` tells the session view's back link to return here, not to a blank search page.
-  const href = `#/session?${new URLSearchParams({ file: e.file, label: e.approxPath, back: "words" }).toString()}`;
+  const href = sessionHash(e.file, { label: e.approxPath, back: "words" });
   const card = el(
     "div",
     { class: "wm-card" },

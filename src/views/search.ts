@@ -1,6 +1,7 @@
 import { fetchSearch } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear, relativeTime, errorBox } from "../dom.ts";
+import { sessionHash } from "../routes.ts";
 import type { SearchMatch } from "../types.ts";
 
 const MIN_QUERY = 2;
@@ -30,12 +31,7 @@ function highlight(text: string, needle: string): HTMLElement {
 
 function resultRow(m: SearchMatch, query: string): HTMLElement {
   const label = m.tool ? `${m.kind} · ${m.tool}` : m.kind;
-  const href = `#/session?${new URLSearchParams({
-    file: m.file,
-    q: query,
-    label: m.approxPath,
-    back: "search",
-  }).toString()}`;
+  const href = sessionHash(m.file, { q: query, label: m.approxPath, back: "search" });
   const matches = `${m.matchCount} match${m.matchCount === 1 ? "" : "es"}`;
   return el(
     "a",

@@ -5,10 +5,11 @@ import { eventRow } from "./repoDetail.ts";
 
 /**
  * Standalone transcript view for a single session, reachable by deep link
- * (`#/session?file=…`). Search results and Words cards click through to here
- * so a matching session opens directly, regardless of whether it maps to a
- * crawled repo. `backHref`/`backLabel` come pre-resolved from the router
- * (sessionBackLink), so the link always states its true destination.
+ * (`#/session?file=…`). Search results, Words cards and Data Viz mission cards
+ * click through to here so a matching session opens directly, regardless of
+ * whether it maps to a crawled repo. `backHref`/`backLabel` come pre-resolved
+ * from the router (sessionBackLink), so the link always states its true
+ * destination.
  */
 export async function renderSession(
   host: HTMLElement,
