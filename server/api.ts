@@ -4,7 +4,7 @@ import { buildMetrics } from "./metrics.ts";
 import { buildJourney } from "./journey.ts";
 import { buildSearch } from "./search.ts";
 import { buildWords } from "./words.ts";
-import { parseTranscript } from "./jsonl.ts";
+import { readTranscriptCapped, TRANSCRIPT_EVENT_CAP } from "./jsonl.ts";
 import { resolveRoot, safeResolveReal } from "./paths.ts";
 
 function send(res: ServerResponse, status: number, body: unknown): void {
@@ -187,7 +187,14 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
         send(res, 400, { error: "session file is outside the configured log location" });
         return true;
       }
-      send(res, 200, { file, events: await parseTranscript(file) });
+      // `limit` can lower the event cap but never raise it — clamped the same
+      // way /api/journey clamps `days` (bad input falls back to the default).
+      const limitRaw = Number(url.searchParams.get("limit"));
+      const limit =
+        Number.isFinite(limitRaw) && limitRaw > 0
+          ? Math.min(TRANSCRIPT_EVENT_CAP, Math.floor(limitRaw))
+          : TRANSCRIPT_EVENT_CAP;
+      send(res, 200, { file, ...(await readTranscriptCapped(file, undefined, limit)) });
       return true;
     }
 

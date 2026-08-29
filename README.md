@@ -99,7 +99,7 @@ Every route is read-only, JSON, and served under `/api/` by `server/api.ts`:
 - `GET /api/health` — liveness probe
 - `GET /api/overview?logDir&repoRoot` — repo cards + orphan log projects
 - `GET /api/repo?logDir&repoRoot&path&name` — one repo's specs + session list
-- `GET /api/session?logDir&file` — a single parsed transcript
+- `GET /api/session?logDir&file[&limit]` — a single parsed transcript, capped at 60 MB read / 5000 events (`truncated` + honest totals in the payload; `limit` can only lower the event cap)
 - `GET /api/metrics?logDir[&repoRoot]` — the whole-corpus rollup (Data Viz). `repoRoot` is optional and only sharpens project names (see [the directory-name encoding](#the-directory-name-encoding))
 - `GET /api/journey?logDir&days` — the project graph + visit timeline (Journey)
 - `GET /api/search?logDir&q[&repoRoot]` — full-text search across every transcript, newest-first, capped at 100 results

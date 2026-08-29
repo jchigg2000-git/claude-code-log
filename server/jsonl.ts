@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { open, readFile, stat } from "node:fs/promises";
 
 export interface TimelineEvent {
   ts: string | null;
@@ -43,23 +43,93 @@ function extractText(content: unknown): { text: string; tool?: string; kind?: Ti
 }
 
 /**
- * Parse one `.jsonl` transcript into a normalized timeline. Malformed lines
- * are skipped silently so a single bad line never breaks the view.
+ * Byte cap for a single transcript read — aligned with metrics' SIZE_CAP
+ * (60 MB; fsScan stops line-counting at 50 MB). This was the last corpus
+ * reader with no cap, and the largest real transcript is ~248 MB: reading it
+ * whole shipped a multi-hundred-MB JSON payload to the session view.
  */
-export async function parseTranscript(file: string): Promise<TimelineEvent[]> {
-  let raw: string;
-  try {
-    raw = await readFile(file, "utf8");
-  } catch {
-    return [];
-  }
-  return parseTranscriptText(raw);
+export const TRANSCRIPT_SIZE_CAP = 60 * 1024 * 1024;
+
+/**
+ * Event cap for one `/api/session` payload. Deliberately no offset /
+ * continuation: sessions past this size are read via search, not end-to-end
+ * scrolling, and the views state the truncation explicitly.
+ */
+export const TRANSCRIPT_EVENT_CAP = 5000;
+
+/** A capped transcript read. Mirrored client-side as `Session` (src/types.ts). */
+export interface TranscriptRead {
+  events: TimelineEvent[];
+  /** Events parsed from the bytes read. When `readBytes < sizeBytes` the
+   *  file's true total is unknown and ≥ this. */
+  totalEvents: number;
+  /** True whenever `events` omits anything (byte cap or event cap bit). */
+  truncated: boolean;
+  /** Transcript size on disk. */
+  sizeBytes: number;
+  /** Bytes actually read; < sizeBytes when the byte cap bit. */
+  readBytes: number;
 }
 
 /**
- * The parsing half of {@link parseTranscript}, split out so callers that have
- * already read the file (search reads it to pre-filter) don't read it twice —
- * and so the parser can be exercised without touching a filesystem.
+ * Read + parse one `.jsonl` transcript into a normalized timeline, holding at
+ * most `sizeCap` bytes in memory and returning at most `eventCap` events.
+ * Malformed lines are skipped silently so a single bad line never breaks the
+ * view, and an unreadable file yields an empty read rather than a throw (the
+ * view renders "no readable events", not a 500).
+ */
+export async function readTranscriptCapped(
+  file: string,
+  sizeCap = TRANSCRIPT_SIZE_CAP,
+  eventCap = TRANSCRIPT_EVENT_CAP,
+): Promise<TranscriptRead> {
+  let sizeBytes: number;
+  try {
+    sizeBytes = (await stat(file)).size;
+  } catch {
+    return { events: [], totalEvents: 0, truncated: false, sizeBytes: 0, readBytes: 0 };
+  }
+
+  let raw: string;
+  let readBytes: number;
+  try {
+    if (sizeBytes > sizeCap) {
+      // Head-only read: never hold more than the cap in memory.
+      const fh = await open(file, "r");
+      try {
+        const buf = Buffer.alloc(sizeCap);
+        ({ bytesRead: readBytes } = await fh.read(buf, 0, sizeCap, 0));
+        const head = buf.subarray(0, readBytes).toString("utf8");
+        // Drop the trailing partial line: it's a cut JSON object (possibly
+        // ending mid-multibyte-char), noise rather than a real malformed line.
+        const nl = head.lastIndexOf("\n");
+        raw = nl >= 0 ? head.slice(0, nl) : "";
+      } finally {
+        await fh.close();
+      }
+    } else {
+      raw = await readFile(file, "utf8");
+      readBytes = sizeBytes;
+    }
+  } catch {
+    return { events: [], totalEvents: 0, truncated: false, sizeBytes, readBytes: 0 };
+  }
+
+  const all = parseTranscriptText(raw);
+  const events = all.length > eventCap ? all.slice(0, eventCap) : all;
+  return {
+    events,
+    totalEvents: all.length,
+    truncated: readBytes < sizeBytes || events.length < all.length,
+    sizeBytes,
+    readBytes,
+  };
+}
+
+/**
+ * The parsing half of {@link readTranscriptCapped}, split out so callers that
+ * have already read the file (search reads it to pre-filter) don't read it
+ * twice — and so the parser can be exercised without touching a filesystem.
  */
 export function parseTranscriptText(raw: string): TimelineEvent[] {
   const events: TimelineEvent[] = [];

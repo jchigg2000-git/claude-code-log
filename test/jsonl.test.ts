@@ -1,7 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
-import { countLines, parseTranscriptText } from "../server/jsonl.ts";
+import { countLines, parseTranscriptText, readTranscriptCapped } from "../server/jsonl.ts";
 
 const line = (o: unknown) => JSON.stringify(o);
 
@@ -135,4 +138,67 @@ test("countLines ignores blank and whitespace-only lines", () => {
   assert.equal(countLines("a\nb\n\n   \nc"), 3);
   assert.equal(countLines(""), 0);
   assert.equal(countLines("\n\n"), 0);
+});
+
+// ── readTranscriptCapped ─────────────────────────────────────────────────────
+
+const userLine = (i: number) => line({ type: "user", message: { role: "user", content: `prompt ${i}` } });
+
+async function transcriptFile(lines: string[]): Promise<string> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "ccl-jsonl-"));
+  const file = path.join(dir, "sess.jsonl");
+  await writeFile(file, lines.join("\n"));
+  return file;
+}
+
+test("a small transcript reads whole: no truncation, totals agree", async () => {
+  const file = await transcriptFile([userLine(1), userLine(2), userLine(3)]);
+  const read = await readTranscriptCapped(file);
+  assert.equal(read.truncated, false);
+  assert.equal(read.totalEvents, 3);
+  assert.equal(read.events.length, 3);
+  assert.equal(read.readBytes, read.sizeBytes);
+  assert.ok(read.sizeBytes > 0);
+});
+
+test("the event cap slices the timeline but reports the honest total", async () => {
+  const file = await transcriptFile([userLine(1), userLine(2), userLine(3), userLine(4), userLine(5)]);
+  const read = await readTranscriptCapped(file, undefined, 2);
+  assert.equal(read.truncated, true);
+  assert.equal(read.totalEvents, 5);
+  assert.deepEqual(
+    read.events.map((e) => e.text),
+    ["prompt 1", "prompt 2"],
+    "the head of the timeline, in order",
+  );
+  assert.equal(read.readBytes, read.sizeBytes, "the event cap alone is not a byte cap");
+});
+
+test("the byte cap reads only the file head and drops the cut trailing line", async () => {
+  const lines = [userLine(1), userLine(2), userLine(3), userLine(4)];
+  const file = await transcriptFile(lines);
+  // Cap mid-way through line 3: lines 1–2 survive, the partial line is noise, not a parse.
+  const sizeCap = Buffer.byteLength(`${lines[0]}\n${lines[1]}\n`) + 10;
+  const read = await readTranscriptCapped(file, sizeCap);
+  assert.equal(read.truncated, true);
+  assert.equal(read.totalEvents, 2, "only complete lines within the cap are parsed");
+  assert.deepEqual(
+    read.events.map((e) => e.text),
+    ["prompt 1", "prompt 2"],
+  );
+  assert.equal(read.readBytes, sizeCap);
+  assert.ok(read.sizeBytes > read.readBytes);
+});
+
+test("a byte-capped read with no newline in the head yields zero events, still flagged truncated", async () => {
+  const file = await transcriptFile([userLine(1), userLine(2)]);
+  const read = await readTranscriptCapped(file, 5); // cuts inside the first line
+  assert.equal(read.truncated, true);
+  assert.equal(read.totalEvents, 0);
+  assert.deepEqual(read.events, []);
+});
+
+test("an unreadable file yields an empty, un-truncated read rather than a throw", async () => {
+  const read = await readTranscriptCapped(path.join(os.tmpdir(), "ccl-jsonl-none", "missing.jsonl"));
+  assert.deepEqual(read, { events: [], totalEvents: 0, truncated: false, sizeBytes: 0, readBytes: 0 });
 });

@@ -50,9 +50,23 @@ export interface TimelineEvent {
   tool?: string;
 }
 
+/**
+ * `/api/session` payload — mirrors server/jsonl.ts's TranscriptRead plus the
+ * resolved file path. The server caps both bytes read (60 MB, aligned with
+ * metrics) and events returned (5000); `truncated` is true whenever `events`
+ * omits anything, and the views must say so — never silently drop events.
+ */
 export interface Session {
   file: string;
   events: TimelineEvent[];
+  /** Events parsed from the bytes read. When `readBytes < sizeBytes` the
+   *  file's true total is unknown and ≥ this. */
+  totalEvents: number;
+  truncated: boolean;
+  /** Transcript size on disk. */
+  sizeBytes: number;
+  /** Bytes actually read; < sizeBytes when the byte cap bit. */
+  readBytes: number;
 }
 
 export interface AppConfig {

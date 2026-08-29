@@ -291,6 +291,53 @@ a:hover { text-decoration: underline; }
   padding: 10px;
 }
 
+/* Honest degraded state: the server capped the payload (bytes and/or events). */
+.truncation-note {
+  margin: 12px 0 4px;
+  padding: 8px 12px;
+  border: 1px solid #6b552b; /* amber sibling of .error's #6b2b2b */
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+/* Event-kind filter chips — the wm-chip idiom (words.ts) on the transcript surfaces. */
+.ev-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 12px 0 4px; }
+.ev-chip {
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.ev-chip:hover { color: var(--text); }
+.ev-chip.active { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+
+/* CSS-state filtering: chips toggle these classes on .transcript and rendered
+   rows are hidden, never rebuilt. Hidden rows still cost DOM nodes — the
+   progressive renderer (slices.ts) is what keeps that affordable. */
+.transcript.filter-prompts .ev:not(.ev-user) { display: none; }
+.transcript.filter-no-tools .ev-tool_use,
+.transcript.filter-no-tools .ev-tool_result { display: none; }
+
+/* "Show N more events" — the explicit gate between render batches. */
+.ev-more {
+  display: block;
+  width: 100%;
+  margin: 12px 0 4px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  color: var(--muted);
+  border-radius: 6px;
+  font-size: 0.82rem;
+  cursor: pointer;
+}
+.ev-more:hover { color: var(--accent); border-color: var(--accent); }
+
 .empty, .error {
   background: var(--panel);
   border: 1px solid var(--border);
