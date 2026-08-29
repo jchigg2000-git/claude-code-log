@@ -165,6 +165,13 @@ export function areaChart(
   const padX = 8;
   const padTop = opts.bare ? 6 : 26;
   const padBottom = opts.bare ? 6 : 22;
+  // An empty series would make `x(n - 1)` negative and emit `d="M ..."` with no
+  // points — a malformed path the browser silently drops, leaving a blank SVG
+  // frame that reads as a broken chart rather than as "no data". Say it instead.
+  if (series.length === 0) {
+    return el("p", { class: "vz-lede" }, "No activity in this window.");
+  }
+
   const max = Math.max(1, ...series.map((s) => s.value));
   const n = series.length;
   const x = (i: number) => padX + (i / Math.max(1, n - 1)) * (W - 2 * padX);

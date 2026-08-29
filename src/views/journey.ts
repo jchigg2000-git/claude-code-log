@@ -3,6 +3,7 @@ import { loadConfig } from "../config.ts";
 import { el, clear, relativeTime, errorBox } from "../dom.ts";
 import { forceGraph, sloppyTimeline, compact, money, type GraphPick } from "../charts.ts";
 import { fitChart } from "../fitChart.ts";
+import { setViewTeardown, runViewTeardown } from "../viewLifecycle.ts";
 import { createJourneyField, type FleetBucket, type SceneId, type VisitSeed } from "./journey-canvas.ts";
 import type { Journey, JourneyEdge, JourneyNode, JourneyVisit, Metrics } from "../types.ts";
 
@@ -484,10 +485,8 @@ function buildChapterDots(scenes: Scene[], dots: HTMLElement): { chapters: Chapt
 
 // ── Canvas + scroll wiring ───────────────────────────────────────────────────
 
-let teardown: (() => void) | null = null;
-
 /** Create the particle field, drive it (plus the rail fill, chapter dots, and
- *  per-scene counters) from scroll, install the module-level teardown, and
+ *  per-scene counters) from scroll, register the teardown with the router, and
  *  kick off scene 0. */
 function wireScrollytelling(opts: {
   canvas: HTMLCanvasElement;
@@ -556,11 +555,14 @@ function wireScrollytelling(opts: {
 
   window.addEventListener("scroll", onScroll, { passive: true });
   window.addEventListener("resize", onResize);
-  teardown = () => {
+  // Registered with the router rather than kept module-local: these outlive the
+  // DOM they were installed for, so they have to be dropped when the user
+  // navigates away, not only when Journey happens to render again.
+  setViewTeardown(() => {
     field.destroy();
     window.removeEventListener("scroll", onScroll);
     window.removeEventListener("resize", onResize);
-  };
+  });
 
   // Kick off scene 0.
   triggered.add(0);
@@ -570,10 +572,9 @@ function wireScrollytelling(opts: {
 // ── The view ─────────────────────────────────────────────────────────────────
 
 export async function renderJourney(host: HTMLElement): Promise<void> {
-  if (teardown) {
-    teardown();
-    teardown = null;
-  }
+  // The router already tore down the outgoing view, but Journey re-rendering
+  // over itself (the periodic refresh) arrives here without a route change.
+  runViewTeardown();
   clear(host);
   host.append(el("p", { class: "loading" }, "Reconstructing the journey from day one…"));
 

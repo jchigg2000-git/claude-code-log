@@ -10,11 +10,17 @@ import { renderWords } from "./views/words.ts";
 import { openSettings } from "./views/settings.ts";
 import { invalidateMetrics, invalidateJourney, invalidateWords, invalidateRepo } from "./api.ts";
 import { sessionBackLink, sameRepoPage } from "./routes.ts";
+import { runViewTeardown } from "./viewLifecycle.ts";
 
 const app = document.getElementById("app")!;
 const searchBox = document.getElementById("search-box") as HTMLInputElement;
 
 async function route(opts: { preserveScroll?: boolean } = {}): Promise<void> {
+  // Dispose the outgoing view before the next one mounts. Only views that own
+  // window-level listeners or animation loops register anything here; for the
+  // rest this is a no-op.
+  runViewTeardown();
+
   const hash = location.hash.replace(/^#/, "") || "/";
   const [pathPart, queryPart] = hash.split("?");
   const params = new URLSearchParams(queryPart ?? "");

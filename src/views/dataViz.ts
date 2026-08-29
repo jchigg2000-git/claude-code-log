@@ -339,7 +339,14 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
   );
 
   // ── The headline graphic: the agent fleet ────────────────────────
-  host.append(agentSection(m.agents, workingHours, m.topMissions));
+  // Only when there is a fleet to show. On a corpus with no Agent/Task calls
+  // every figure in this section is 0, the fleet bar and both breakdowns come
+  // out empty, and the lede would still assert "a fleet of subagents working in
+  // parallel". Profile already states the rule for the same data: a section
+  // drops out when the signal that would justify it is absent.
+  if (m.agents.total > 0) {
+    host.append(agentSection(m.agents, workingHours, m.topMissions));
+  }
 
   // ── Pace ─────────────────────────────────────────────────────────
   const busiest = [...m.byDay].sort((a, b) => b.events - a.events)[0];
@@ -502,6 +509,4 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
       el("p", { class: "vz-foot" }, `Snapshot is live; ${m.totals.scaffoldProjects} throwaway scaffold/temp dirs excluded, as on the Profile page.`),
     ),
   );
-
-  window.scrollTo(0, 0);
 }
