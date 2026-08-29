@@ -37,7 +37,8 @@ function betweenLine(e: WordEntry): string {
 }
 
 function entryCard(e: WordEntry): HTMLElement {
-  const href = `#/session?${new URLSearchParams({ file: e.file, label: e.approxPath }).toString()}`;
+  // `back=words` tells the session view's back link to return here, not to a blank search page.
+  const href = `#/session?${new URLSearchParams({ file: e.file, label: e.approxPath, back: "words" }).toString()}`;
   const card = el(
     "div",
     { class: "wm-card" },

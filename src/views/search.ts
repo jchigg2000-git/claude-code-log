@@ -34,6 +34,7 @@ function resultRow(m: SearchMatch, query: string): HTMLElement {
     file: m.file,
     q: query,
     label: m.approxPath,
+    back: "search",
   }).toString()}`;
   const matches = `${m.matchCount} match${m.matchCount === 1 ? "" : "es"}`;
   return el(

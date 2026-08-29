@@ -5,17 +5,20 @@ import { eventRow } from "./repoDetail.ts";
 
 /**
  * Standalone transcript view for a single session, reachable by deep link
- * (`#/session?file=…`). Search results click through to here so a matching
- * session opens directly, regardless of whether it maps to a crawled repo.
+ * (`#/session?file=…`). Search results and Words cards click through to here
+ * so a matching session opens directly, regardless of whether it maps to a
+ * crawled repo. `backHref`/`backLabel` come pre-resolved from the router
+ * (sessionBackLink), so the link always states its true destination.
  */
 export async function renderSession(
   host: HTMLElement,
   file: string,
   label: string,
   backHref: string,
+  backLabel: string,
 ): Promise<void> {
   clear(host);
-  host.append(el("a", { class: "back", href: backHref }, "← Back to results"));
+  host.append(el("a", { class: "back", href: backHref }, backLabel));
   host.append(el("p", { class: "loading" }, "Loading transcript…"));
 
   let events;
@@ -24,7 +27,7 @@ export async function renderSession(
   } catch (err) {
     clear(host);
     host.append(
-      el("a", { class: "back", href: backHref }, "← Back to results"),
+      el("a", { class: "back", href: backHref }, backLabel),
       errorBox("Could not load transcript. ", err),
     );
     return;
@@ -33,7 +36,7 @@ export async function renderSession(
   const id = file.replace(/\.jsonl$/, "").split("/").pop() ?? file;
   clear(host);
   host.append(
-    el("a", { class: "back", href: backHref }, "← Back to results"),
+    el("a", { class: "back", href: backHref }, backLabel),
     el(
       "div",
       { class: "page-head" },

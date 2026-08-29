@@ -8,7 +8,8 @@ import { renderSearch } from "./views/search.ts";
 import { renderSession } from "./views/session.ts";
 import { renderWords } from "./views/words.ts";
 import { openSettings } from "./views/settings.ts";
-import { invalidateMetrics, invalidateJourney, invalidateWords } from "./api.ts";
+import { invalidateMetrics, invalidateJourney, invalidateWords, invalidateRepo } from "./api.ts";
+import { sessionBackLink, sameRepoPage } from "./routes.ts";
 
 const app = document.getElementById("app")!;
 const searchBox = document.getElementById("search-box") as HTMLInputElement;
@@ -21,7 +22,10 @@ async function route(opts: { preserveScroll?: boolean } = {}): Promise<void> {
   if (pathPart === "/repo") {
     const repoPath = params.get("path") ?? "";
     const name = params.get("name") ?? repoPath;
-    await renderRepoDetail(app, repoPath, name);
+    // `session` is the open-transcript state: present ⇒ that session renders
+    // inline on the repo page, absent ⇒ plain session list. Living in the
+    // hash makes open/close real navigation (Back closes) and shareable.
+    await renderRepoDetail(app, repoPath, name, params.get("session") ?? "");
   } else if (pathPart === "/search") {
     const q = params.get("q") ?? "";
     if (document.activeElement !== searchBox) searchBox.value = q;
@@ -29,9 +33,8 @@ async function route(opts: { preserveScroll?: boolean } = {}): Promise<void> {
   } else if (pathPart === "/session") {
     const file = params.get("file") ?? "";
     const label = params.get("label") ?? "";
-    const q = params.get("q") ?? "";
-    const backHref = q ? `#/search?q=${encodeURIComponent(q)}` : "#/search";
-    await renderSession(app, file, label, backHref);
+    const back = sessionBackLink(params.get("back"), params.get("q"));
+    await renderSession(app, file, label, back.href, back.label);
   } else if (pathPart === "/profile") {
     await renderProfile(app);
   } else if (pathPart === "/viz") {
@@ -78,6 +81,7 @@ async function refreshInPlace(): Promise<void> {
   invalidateMetrics();
   invalidateJourney();
   invalidateWords();
+  invalidateRepo();
   try {
     await route({ preserveScroll: true });
   } finally {
@@ -127,5 +131,11 @@ document.getElementById("settings-btn")!.addEventListener("click", () => {
   });
 });
 
-window.addEventListener("hashchange", () => route());
+window.addEventListener("hashchange", (e) => {
+  // Toggling a transcript open/closed navigates between two hashes of the
+  // same repo page; keep the scroll position so closing a session doesn't
+  // jump back to the top of the list. (Opening still lands on the transcript
+  // — the loaded row scrolls itself into view.)
+  void route({ preserveScroll: sameRepoPage(e.oldURL, e.newURL) });
+});
 route();

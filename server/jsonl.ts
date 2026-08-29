@@ -104,3 +104,57 @@ export function countLines(raw: string): number {
   for (const line of raw.split("\n")) if (line.trim()) n++;
   return n;
 }
+
+/** Preview length for a session's opening prompt — mirrors MissionStat.opening in metrics.ts. */
+const PREVIEW_CHARS = 90;
+
+/**
+ * Human prompt text from a user message's `content`, or "" when the line
+ * carries no text. A user line whose content array holds a tool_result is the
+ * harness returning tool output, not the human typing — the same demotion
+ * rule metrics.ts applies — so it yields "" outright.
+ */
+function promptText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  const parts: string[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== "object") continue;
+    const b = block as Record<string, unknown>;
+    if (b.type === "tool_result") return "";
+    if (b.type === "text" && typeof b.text === "string") parts.push(b.text);
+  }
+  return parts.join(" ");
+}
+
+/**
+ * {@link countLines} plus the session's opening human prompt, in one pass.
+ * scanLogProjects already reads a transcript's full bytes just to count
+ * lines, so the preview rides along at zero extra I/O. Every non-empty line
+ * counts (identical semantics to countLines); only a well-formed user line
+ * with substantive text can contribute the preview — malformed JSON,
+ * tool_result carriers, and blank/whitespace prompts are passed over, and
+ * the first hit wins.
+ */
+export function countLinesAndPreview(raw: string): { count: number; preview: string } {
+  let count = 0;
+  let preview = "";
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    count++;
+    if (preview) continue;
+    let obj: unknown;
+    try {
+      obj = JSON.parse(trimmed);
+    } catch {
+      continue; // malformed line: still counted, never previewed
+    }
+    if (!obj || typeof obj !== "object") continue;
+    const message = (obj as Record<string, unknown>).message as Record<string, unknown> | undefined;
+    if (!message || typeof message !== "object" || message.role !== "user") continue;
+    const text = promptText(message.content).replace(/\s+/g, " ").trim();
+    if (text) preview = text.slice(0, PREVIEW_CHARS);
+  }
+  return { count, preview };
+}

@@ -62,6 +62,58 @@ test("line counts are memoized on mtime+size and invalidated on growth", async (
   assert.equal(third[0].sessions[0].messageCount, 4);
 });
 
+test("session preview is the first substantive prompt: carriers, noise, and malformed lines skipped, 90-char cap", async () => {
+  clearLineCountCache();
+  const long =
+    "Refactor the session list so every row shows what the session was actually about, because raw UUIDs mean nothing to anyone scanning the page";
+  const lines = [
+    "{ not json at all", // malformed: counted, never previewed
+    JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", content: "ok" }] } }), // carrier
+    JSON.stringify({ type: "user", message: { role: "user", content: "   " } }), // whitespace-only prompt
+    JSON.stringify({ type: "assistant", message: { role: "assistant", content: "hello" } }), // not a prompt
+    JSON.stringify({ type: "user", message: { role: "user", content: long } }), // first substantive → wins
+    JSON.stringify({ type: "user", message: { role: "user", content: "a later prompt that must not win" } }),
+  ];
+  const logDir = await corpus({ "-Users-me-Projects-alpha": [] });
+  await writeFile(path.join(logDir, "-Users-me-Projects-alpha", "s1.jsonl"), lines.join("\n"));
+
+  const [proj] = await scanLogProjects(logDir);
+  assert.equal(proj.sessions[0].messageCount, 6, "malformed lines still count");
+  assert.equal(proj.sessions[0].preview, long.slice(0, 90));
+  assert.equal(proj.sessions[0].preview.length, 90);
+});
+
+test("preview is memoized alongside the line count and recomputed on growth", async () => {
+  clearLineCountCache();
+  // Same byte length, different opening prompt — so mtime+size (the staleness
+  // key) can be held equal while the content swaps.
+  const promptA = JSON.stringify({ type: "user", message: { role: "user", content: "alpha one" } });
+  const promptB = JSON.stringify({ type: "user", message: { role: "user", content: "bravo two" } });
+  assert.equal(promptA.length, promptB.length);
+
+  const logDir = await corpus({ "-Users-me-Projects-alpha": [] });
+  const file = path.join(logDir, "-Users-me-Projects-alpha", "s1.jsonl");
+  const pinned = new Date(1700000000000);
+  await writeFile(file, promptA);
+  await utimes(file, pinned, pinned);
+
+  const first = await scanLogProjects(logDir);
+  assert.equal(first[0].sessions[0].preview, "alpha one");
+
+  // Unchanged mtime+size: the cache hit must serve the memoized preview,
+  // proving the bytes were not re-read.
+  await writeFile(file, promptB);
+  await utimes(file, pinned, pinned);
+  const second = await scanLogProjects(logDir);
+  assert.equal(second[0].sessions[0].preview, "alpha one", "unchanged mtime+size must hit the cache");
+
+  // Growth invalidates the entry; the recount re-extracts from the new bytes.
+  await appendFile(file, `\n${promptA}`);
+  const third = await scanLogProjects(logDir);
+  assert.equal(third[0].sessions[0].preview, "bravo two");
+  assert.equal(third[0].sessions[0].messageCount, 2);
+});
+
 test("spec reads refuse symlinks that escape the repo", async () => {
   const outside = await mkdtemp(path.join(os.tmpdir(), "ccl-outside-"));
   const secret = path.join(outside, "secret.txt");

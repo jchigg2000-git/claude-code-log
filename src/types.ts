@@ -32,6 +32,9 @@ export interface SessionMeta {
   mtime: string;
   sizeBytes: number;
   messageCount: number;
+  /** First substantive human prompt (≤90 chars) — what the session was about.
+   *  "" when nothing qualifies (empty, oversized, or all-carrier transcripts). */
+  preview: string;
 }
 
 export interface RepoDetail extends RepoSummary {

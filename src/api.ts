@@ -15,10 +15,31 @@ export function fetchOverview(cfg: AppConfig): Promise<Overview> {
   return getJSON<Overview>(`/api/overview?${q({ logDir: cfg.logDir, repoRoot: cfg.repoRoot })}`);
 }
 
+// Opening/closing a transcript navigates through #/repo (the hash carries the
+// open session), so the route re-render calls fetchRepo on every toggle.
+// Memoize the last repo — same shape and keying discipline as fetchMetrics —
+// so a toggle re-renders from the already-resolved promise instead of
+// rescanning the project dir. One entry is enough: only one repo page is ever
+// on screen, and the periodic refresh invalidates it like the other caches.
+let repoCache: { key: string; promise: Promise<RepoDetail> } | null = null;
+
 export function fetchRepo(cfg: AppConfig, repoPath: string, name: string): Promise<RepoDetail> {
-  return getJSON<RepoDetail>(
-    `/api/repo?${q({ logDir: cfg.logDir, repoRoot: cfg.repoRoot, path: repoPath, name })}`,
-  );
+  const key = `${cfg.logDir}::${cfg.repoRoot}::${repoPath}::${name}`;
+  if (!repoCache || repoCache.key !== key) {
+    const promise = getJSON<RepoDetail>(
+      `/api/repo?${q({ logDir: cfg.logDir, repoRoot: cfg.repoRoot, path: repoPath, name })}`,
+    );
+    // Same as fetchMetrics: evict on rejection so a transient failure isn't cached permanently.
+    promise.catch(() => {
+      if (repoCache?.promise === promise) repoCache = null;
+    });
+    repoCache = { key, promise };
+  }
+  return repoCache.promise;
+}
+
+export function invalidateRepo(): void {
+  repoCache = null;
 }
 
 export function fetchSession(cfg: AppConfig, file: string): Promise<Session> {

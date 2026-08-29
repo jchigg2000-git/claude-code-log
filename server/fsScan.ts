@@ -1,6 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
-import { countLines } from "./jsonl.ts";
+import { countLinesAndPreview } from "./jsonl.ts";
 import { encodeProjectDir, decodeProjectDirApprox, safeResolveReal } from "./paths.ts";
 import { buildRepoKeys, matchRepo, type RepoKey } from "./projectNames.ts";
 
@@ -10,6 +10,9 @@ export interface SessionMeta {
   mtime: string;
   sizeBytes: number;
   messageCount: number;
+  /** First substantive human prompt (≤90 chars) — what the session was about.
+   *  "" when nothing qualifies (empty, oversized, or all-carrier transcripts). */
+  preview: string;
 }
 
 export interface LogProject {
@@ -45,16 +48,18 @@ const SIZE_CAP = 50 * 1024 * 1024; // skip line-counting absurdly large logs
 const SKIP_DIRS = new Set(["node_modules", ".git", ".venv", "venv", "dist", "build"]);
 
 /**
- * Per-file message-count memo. Counting lines is the only reason
+ * Per-file message-count + preview memo. Counting lines is the only reason
  * scanLogProjects reads transcript bytes at all, and /api/overview reruns the
  * scan on every landing-page visit — on a multi-GB corpus that is seconds of
  * re-reading unchanged files. Transcripts are append-only (the invariant
  * transcriptCache.ts documents), so `mtimeMs` + `size` are a sound staleness
  * key: a rescan reads only files that are new or have grown, and the rest of
- * the scan is readdir + stat. Entries are ~a hundred bytes, so even a
- * 100k-file corpus holds a few MB — no eviction needed.
+ * the scan is readdir + stat. The opening-prompt preview is extracted from
+ * the same read and memoized alongside, so it costs zero extra I/O on warm
+ * scans. Entries are ~a couple hundred bytes, so even a 100k-file corpus
+ * holds a few MB — no eviction needed.
  */
-const lineCountCache = new Map<string, { mtimeMs: number; size: number; count: number }>();
+const lineCountCache = new Map<string, { mtimeMs: number; size: number; count: number; preview: string }>();
 
 /** Drop every cached line count. Exposed for tests. */
 export function clearLineCountCache(): void {
@@ -114,21 +119,25 @@ export async function scanLogProjects(
         continue;
       }
       let count = -1;
+      let preview = "";
       if (st.size <= SIZE_CAP) {
         const cached = lineCountCache.get(full);
         if (cached && cached.mtimeMs === st.mtimeMs && cached.size === st.size) {
           count = cached.count;
+          preview = cached.preview;
         } else {
           try {
-            count = countLines(await readFile(full, "utf8"));
-            lineCountCache.set(full, { mtimeMs: st.mtimeMs, size: st.size, count });
+            const scanned = countLinesAndPreview(await readFile(full, "utf8"));
+            count = scanned.count;
+            preview = scanned.preview;
+            lineCountCache.set(full, { mtimeMs: st.mtimeMs, size: st.size, count, preview });
           } catch {
             count = -1;
           }
         }
       }
       const mtime = st.mtime.toISOString();
-      sessions.push({ id: f.replace(/\.jsonl$/, ""), file: full, mtime, sizeBytes: st.size, messageCount: count });
+      sessions.push({ id: f.replace(/\.jsonl$/, ""), file: full, mtime, sizeBytes: st.size, messageCount: count, preview });
       if (count > 0) messageCount += count;
       if (!lastActivity || mtime > lastActivity) lastActivity = mtime;
     }

@@ -250,16 +250,28 @@ a:hover { text-decoration: underline; }
   padding: 12px 14px;
   cursor: pointer;
   display: flex;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  gap: 4px;
   font-family: ui-monospace, monospace;
   font-size: 0.82rem;
 }
 .session-head:hover { color: var(--accent); }
+.session-line { display: flex; justify-content: space-between; gap: 12px; }
 .session-meta { color: var(--muted); white-space: nowrap; }
+.session-preview {
+  color: var(--muted);
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session.active { border-color: var(--accent); }
+.session.active .session-id { color: var(--accent); }
 
 .transcript { margin-top: 14px; }
 .transcript h3 { font-family: ui-monospace, monospace; font-size: 0.9rem; }
+/* Inline transcript inside the active session row (opens in place, under its header). */
+.session .transcript { margin-top: 0; padding: 0 14px 12px; border-top: 1px solid var(--border); }
 
 .ev { border-left: 3px solid var(--border); padding: 4px 0 4px 12px; margin: 10px 0; }
 .ev-user { border-color: var(--user); }
