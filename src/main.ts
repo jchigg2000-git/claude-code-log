@@ -52,6 +52,11 @@ async function route(opts: { preserveScroll?: boolean } = {}): Promise<void> {
   } else {
     await renderOverview(app);
   }
+  // The box is a persistent top-bar control, so leaving the results page has to
+  // clear it — otherwise it keeps advertising a query the page below no longer
+  // reflects. Skipped while it has focus, so this never eats a keystroke.
+  if (pathPart !== "/search" && document.activeElement !== searchBox) searchBox.value = "";
+
   syncNav(pathPart);
   if (!opts.preserveScroll) window.scrollTo(0, 0);
 }

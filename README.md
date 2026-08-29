@@ -45,7 +45,7 @@ Opens automatically at **`http://127.0.0.1:5189`**. The port is pinned via `stri
 npm run demo
 ```
 
-That generates a synthetic corpus under `fixtures/` and starts the app pointed at it — six invented repos, 36 sessions, a command history, a subagent fleet, and a deliberate handful of malformed JSONL lines to exercise the skip-gracefully paths. Nothing in it comes from a real machine, so you can screen-share or screenshot the app without publishing your own repo names, prompts, or spend.
+That generates a synthetic corpus under `fixtures/` and starts the app pointed at it — six invented repos, 33 sessions, a command history, a subagent fleet, a scatter of corrections for the Words tab to mine, and a deliberate handful of malformed JSONL lines to exercise the skip-gracefully paths. Nothing in it comes from a real machine, so you can screen-share or screenshot the app without publishing your own repo names, prompts, or spend.
 
 The corpus is generated rather than checked in for a structural reason: Claude Code names each log directory after the project's **absolute** path (see [the directory-name encoding](#the-directory-name-encoding)), so a fixture only joins to its repos at the path it was built for. `npm run fixtures` rebuilds it in place; it's deterministic, so repeated runs produce identical content.
 
@@ -68,6 +68,10 @@ Use `demo:shots` rather than `demo` for this: the Repos page renders each repo's
 **Search** — full-text across every transcript, newest-first, with match counts and highlighted snippets:
 
 ![Search](docs/screenshots/search.png)
+
+**Words That Mattered** — corrections mined from your own prompts, paired with the phrase that got taken the wrong way, bucketed and badged by confidence:
+
+![Words That Mattered](docs/screenshots/words.png)
 
 **Profile** — a written read of your own corpus, computed live from the same metrics the Data Viz tab uses:
 

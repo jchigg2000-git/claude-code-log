@@ -191,8 +191,8 @@ function promptText(content: unknown): string {
 }
 
 /**
- * The one counting implementation — the only one — plus
- * the session's opening human prompt, in one pass. scanLogProjects already
+ * The single counting implementation, plus the session's opening human prompt,
+ * in one pass. scanLogProjects already
  * reads a transcript's full bytes just to count lines, so the preview rides
  * along at zero extra I/O. Every non-empty line counts; only a well-formed
  * user line with substantive text can contribute the preview — malformed JSON,

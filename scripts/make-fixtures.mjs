@@ -606,6 +606,37 @@ function buildToolInput(name, repo) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Corrections — what the Words tab mines.
+//
+// A later user message carrying a correction marker gets paired with the
+// nearest earlier substantive prompt. Without a few of these the demo corpus
+// renders the Words tab empty, which makes a shipped feature look broken.
+// Every template below fires a real marker in server/words.ts, spread across
+// all three buckets (taken literally / mis-said / overweighted) and both
+// confidence levels, so the tab demonstrates its own badges.
+// ---------------------------------------------------------------------------
+// The topics are full sentences, so these deliberately do NOT interpolate one:
+// the Words tab already renders the paired original prompt beside the
+// correction, and splicing a sentence into a clause reads like a mail merge.
+const CORRECTIONS = [
+  // taken literally — explicit
+  "that's not what I meant — I wanted the read path diagnosed, not rewritten",
+  "you misunderstood me. That was the example, not the whole scope",
+  "I didn't mean change the behaviour — just tell me why it happens",
+  "that was too literal. I wanted the shape of the fix, not the fix itself",
+  // mis-said — explicit (the human's own slip)
+  "typo, I meant the opposite — it should stay exactly as it is",
+  "sorry, I misspoke: the caller, not the callee",
+  "I meant to say staging, not production",
+  // overweighted — explicit
+  "I never asked for a refactor here. Just the one function",
+  "I didn't ask you to touch the tests",
+  // inferred — a weak reversal that names no miscommunication outright
+  "no, wait — back up. Smallest reproduction first",
+  "undo that. Let's take it one piece at a time",
+];
+
 /** Close a topic off so appending a suffix doesn't produce a run-on sentence. */
 function terminate(topic) {
   if (/[.?!]$/.test(topic)) return topic;
@@ -670,6 +701,7 @@ const UNPAIRED_TARGET = 3;
 
 let statAgentDispatches = 0;
 let statAgentPaired = 0;
+let statCorrections = 0;
 let statTotalLines = 0;
 let statTotalSessions = 0;
 
@@ -788,6 +820,23 @@ function buildSessionLines(repo, injectMalformed) {
         }
       }
       if (lines.length >= targetLines) break;
+    }
+
+    // Occasionally the human comes back and says the prompt was taken the wrong
+    // way. Deliberately rare: the Words tab should look like a real corpus --
+    // a handful of moments that mattered -- not a stream of corrections.
+    if (rand() < 0.17) {
+      advance(false);
+      // Rotate rather than draw: a random pick repeats often enough that the
+      // newest few entries -- the ones the Words tab shows first -- kept landing
+      // on the same line, which reads as canned rather than mined.
+      const correction = CORRECTIONS[statCorrections % CORRECTIONS.length];
+      push({
+        type: "user",
+        timestamp: new Date(cur).toISOString(),
+        message: { role: "user", content: correction },
+      });
+      statCorrections++;
     }
 
     if (rand() < 0.15) {
@@ -972,6 +1021,7 @@ async function main() {
   console.log(`  JSONL lines:      ${statTotalLines}`);
   console.log(`  Agent dispatches: ${statAgentDispatches} (${statAgentPaired} paired, ${statAgentDispatches - statAgentPaired} unpaired)`);
   console.log(`  History entries:  ${history.length}`);
+  console.log(`  Corrections:      ${statCorrections} (Words tab)`);
   console.log(`  Active days:      ${ACTIVE_DAYS_COUNT} of ${SPAN_DAYS}`);
   console.log("");
   console.log("Paste into the app's Settings dialog:");

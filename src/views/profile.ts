@@ -143,8 +143,7 @@ function sectionHow(m: Metrics): string {
 
   const orchLine = orchTotal
     ? ` Below the top of the list sit ${list(orchestration.map((x) => `${num(x.c)} ${x.n}`))} calls — ` +
-      `**${orchShare}%** of all tool use is orchestration rather than direct edits, which is the ` +
-      `difference between running the model as a system and chatting at it.`
+      `**${orchShare}%** of all tool use is orchestration rather than direct edits.`
     : "";
 
   return `### How the work gets done
@@ -206,8 +205,8 @@ function sectionModels(m: Metrics): string {
   const named = m.models
     .slice(0, 3)
     .map((x) => `\`${x.model}\` (${compact(x.tokens)}, ${pct(x.tokens, total)}%)`);
-  // Only worth a sentence when the cache actually dominates. At parity the claim
-  // would contradict its own figure, which is how the first draft of this read.
+  // Only worth a sentence when the cache actually dominates: at parity the claim
+  // would contradict the figure printed beside it.
   const cacheRatio = t.tokIn > 0 ? t.tokCacheRead / t.tokIn : 0;
   const leverage =
     cacheRatio >= 2

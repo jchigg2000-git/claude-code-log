@@ -48,6 +48,7 @@ const SHOTS = [
     scrollTo: ".jn-graph-wrap",
   },
   { name: "search", route: "/search?q=ferry", ready: ".results, .empty, .hint" },
+  { name: "words", route: "/words", ready: ".wm-list, .empty, .error", height: 1100 },
   { name: "profile", route: "/profile", ready: ".stats.snapshot, .empty, .error", height: 1500 },
 ];
 
