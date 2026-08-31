@@ -70,6 +70,16 @@ web_modules/
 .env.*
 !.env.example
 
+# npm auth and key material. Nothing here is currently committed; these are the
+# two file classes most likely to be created in-repo by a contributor and then
+# staged by accident.
+.npmrc
+*.pem
+*.key
+*.p12
+id_rsa*
+id_ed25519*
+
 # parcel-bundler cache (https://parceljs.org/)
 .cache
 .parcel-cache

@@ -36,6 +36,8 @@ const FIXTURES = process.env.CCL_FIXTURES_DIR
   ? path.resolve(process.env.CCL_FIXTURES_DIR)
   : path.join(REPO, "fixtures");
 const URL_BASE = "http://127.0.0.1:5189";
+/** Must match STORAGE_KEY in src/config.ts — the page reads its corpus from here first. */
+const CONFIG_KEY = "claude-code-log.config";
 const CHROME =
   process.env.CHROME || "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 const PORT = 9333;
@@ -90,6 +92,81 @@ function fixturePaths() {
   };
 }
 
+/**
+ * Refuse to shoot a corpus that sits inside the repo.
+ *
+ * The Repos page renders each repo's ABSOLUTE path on its card, so a corpus at
+ * ./fixtures puts the capturing machine's home directory into every committed
+ * PNG. That is the leak that reached the published screenshot set once already.
+ * `demo:shots` / `screenshots:shots` relocate the corpus under /tmp; this makes
+ * running the non-`:shots` pair a hard failure rather than a silent one.
+ */
+function assertNeutralRoot() {
+  if (FIXTURES === REPO || FIXTURES.startsWith(REPO + path.sep)) {
+    console.error(`Refusing to capture: the corpus at ${FIXTURES} is inside the repo,`);
+    console.error(`so every repo card would render this machine's home directory.`);
+    console.error(`Use the relocated pair instead:`);
+    console.error(`  npm run demo:shots        # terminal 1`);
+    console.error(`  npm run screenshots:shots # terminal 2`);
+    return false;
+  }
+  return true;
+}
+
+/**
+ * Pin the page's corpus, rather than trusting the server's build-time seed.
+ *
+ * `loadConfig()` (src/config.ts) reads localStorage first and only falls back to
+ * the VITE_LOG_DIR seed. Chrome runs on a throwaway profile here, so that store
+ * is empty and the seed wins — which means the corpus depends entirely on which
+ * npm script happens to be holding the port. Writing the key ourselves makes the
+ * capture independent of that: `npm run dev` in terminal 1 can no longer put real
+ * transcripts into the shots.
+ */
+async function pinBrowserCorpus(call) {
+  const { logDir, repoRoot } = fixturePaths();
+  const { result } = await call("Runtime.evaluate", {
+    expression: `(() => {
+      try {
+        localStorage.setItem(${JSON.stringify(CONFIG_KEY)}, ${JSON.stringify(
+          JSON.stringify({ logDir, repoRoot }),
+        )});
+        return localStorage.getItem(${JSON.stringify(CONFIG_KEY)});
+      } catch (e) { return "ERR:" + e.message; }
+    })()`,
+    returnByValue: true,
+  });
+  const stored = result?.value;
+  if (typeof stored !== "string" || stored.startsWith("ERR:")) {
+    throw new Error(`could not pin the capture corpus in localStorage (${stored})`);
+  }
+  return stored;
+}
+
+/**
+ * Backstop: never write a screenshot that shows this machine's home directory.
+ *
+ * Everything above is a precondition check. This one reads the rendered page,
+ * which is the only thing that actually ends up in the PNG. If it ever fires,
+ * some path the guards do not model has put real data on screen.
+ */
+async function assertNoHomePaths(call, name) {
+  const home = os.homedir();
+  const { result } = await call("Runtime.evaluate", {
+    expression: `document.body ? document.body.innerText : ""`,
+    returnByValue: true,
+  });
+  const text = typeof result?.value === "string" ? result.value : "";
+  if (home && text.includes(home)) {
+    const line = text.split("\n").find((l) => l.includes(home)) ?? "";
+    throw new Error(
+      `${name}: the rendered page contains this machine's home directory — refusing to write it.\n` +
+        `  offending line: ${line.trim().slice(0, 160)}\n` +
+        `  the server on ${URL_BASE} is serving real transcripts; restart it with: npm run demo:shots`,
+    );
+  }
+}
+
 async function assertFixtures() {
   const qs = new URLSearchParams(fixturePaths());
   const res = await fetch(`${URL_BASE}/api/overview?${qs}`);
@@ -141,11 +218,14 @@ async function connect(url) {
  * the README's own numbers, and nothing about the run looks wrong.
  *
  * This catches the corpus being unreadable, empty, or outside the server's
- * allowed roots. It cannot catch "a different server is serving a different
- * SEED" -- the documented flow runs `demo:shots` and `screenshots` in separate
- * terminals and only the first knows CCL_FIXTURES_DIR -- so the line it prints
- * names the corpus and counts it checked, which is what makes a mismatch
- * visible in the run output.
+ * allowed roots. It does NOT establish what the captured PAGE will render: the
+ * browser resolves its own corpus from localStorage, falling back to the
+ * VITE_LOG_DIR seed baked in by whichever npm script started the server. A
+ * server launched with plain `npm run dev` sets no seed, so the page reads the
+ * REAL ~/.claude/projects while this probe still passes — the server can serve
+ * both. `pinBrowserCorpus` closes that by writing the corpus into localStorage
+ * itself, and `assertNoHomePaths` is the backstop that refuses to write a PNG
+ * showing the capturing machine's home directory.
  */
 async function assertServingFixtures() {
   const { logDir, repoRoot } = fixturePaths();
@@ -176,12 +256,13 @@ async function assertServingFixtures() {
 }
 
 async function main() {
+  if (!assertNeutralRoot()) process.exit(1);
   if (!(await waitForServer())) {
-    console.error(`Nothing serving ${URL_BASE} — start it first with: npm run demo`);
+    console.error(`Nothing serving ${URL_BASE} — start it first with: npm run demo:shots`);
     process.exit(1);
   }
   if (!(await assertFixtures())) {
-    console.error(`The fixture corpus at ${FIXTURES} isn't readable — run: npm run fixtures`);
+    console.error(`The fixture corpus at ${FIXTURES} isn't readable — run: npm run demo:shots`);
     process.exit(1);
   }
   if (!(await assertServingFixtures())) process.exit(1);
@@ -242,7 +323,13 @@ async function main() {
         mobile: false,
       });
 
+      // Load the origin once so localStorage is reachable, pin the corpus there,
+      // then reload into the same route so the app boots reading our config
+      // instead of whatever seed the running server was built with.
       await call("Page.navigate", { url: `${URL_BASE}/#${shot.route}` });
+      await sleep(400);
+      await pinBrowserCorpus(call);
+      await call("Page.reload", { ignoreCache: true });
 
       // Wait for the view's own content to exist, not just for load —
       // every view fetches after mount.
@@ -275,6 +362,8 @@ async function main() {
       // Let charts/counters settle. These animate, so this is a deliberate
       // settle delay rather than a condition.
       await sleep(2500);
+
+      await assertNoHomePaths(call, shot.name);
 
       const { data } = await call("Page.captureScreenshot", { format: "png" });
       await writeFile(path.join(OUT, `${shot.name}.png`), Buffer.from(data, "base64"));

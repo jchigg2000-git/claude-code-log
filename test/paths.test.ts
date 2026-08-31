@@ -82,31 +82,55 @@ test("safeResolveReal falls back to the lexical answer for missing paths", async
   assert.equal(await safeResolveReal(tmp, missing), missing);
 });
 
-test("resolveRoot admits paths under $HOME and rejects everything else", () => {
+test("resolveRoot admits paths under $HOME and rejects everything else", async () => {
   const home = os.homedir();
-  assert.equal(resolveRoot("~/.claude/projects"), path.join(home, ".claude/projects"));
-  assert.equal(resolveRoot("$HOME/Projects"), path.join(home, "Projects"));
-  assert.equal(resolveRoot(home), path.resolve(home));
+  assert.equal(await resolveRoot("~/.claude/projects"), path.join(home, ".claude/projects"));
+  assert.equal(await resolveRoot("$HOME/Projects"), path.join(home, "Projects"));
+  assert.equal(await resolveRoot(home), path.resolve(home));
 
-  assert.equal(resolveRoot("/etc"), null);
-  assert.equal(resolveRoot("/"), null);
-  assert.equal(resolveRoot("/var/log"), null);
+  assert.equal(await resolveRoot("/etc"), null);
+  assert.equal(await resolveRoot("/"), null);
+  assert.equal(await resolveRoot("/var/log"), null);
   // Traversal that lands outside home is rejected after normalization.
-  assert.equal(resolveRoot("~/.claude/../../../etc"), null);
+  assert.equal(await resolveRoot("~/.claude/../../../etc"), null);
   // Empty/whitespace is not a root.
-  assert.equal(resolveRoot(""), null);
-  assert.equal(resolveRoot("   "), null);
+  assert.equal(await resolveRoot(""), null);
+  assert.equal(await resolveRoot("   "), null);
 });
 
-test("CLAUDE_CODE_LOG_ROOTS widens the allowed roots", () => {
+test("CLAUDE_CODE_LOG_ROOTS widens the allowed roots", async () => {
   const prev = process.env.CLAUDE_CODE_LOG_ROOTS;
   try {
-    assert.equal(resolveRoot("/tmp/elsewhere"), null);
+    assert.equal(await resolveRoot("/tmp/elsewhere"), null);
     process.env.CLAUDE_CODE_LOG_ROOTS = `/tmp/elsewhere${path.delimiter}/opt/logs`;
     assert.ok(allowedRoots().includes("/tmp/elsewhere"));
-    assert.equal(resolveRoot("/tmp/elsewhere/sub"), "/tmp/elsewhere/sub");
-    assert.equal(resolveRoot("/opt/logs"), "/opt/logs");
-    assert.equal(resolveRoot("/opt/other"), null);
+    assert.equal(await resolveRoot("/tmp/elsewhere/sub"), "/tmp/elsewhere/sub");
+    assert.equal(await resolveRoot("/opt/logs"), "/opt/logs");
+    assert.equal(await resolveRoot("/opt/other"), null);
+  } finally {
+    if (prev === undefined) delete process.env.CLAUDE_CODE_LOG_ROOTS;
+    else process.env.CLAUDE_CODE_LOG_ROOTS = prev;
+  }
+});
+
+test("resolveRoot rejects a root that symlinks out of the allowed boundary", async () => {
+  const prev = process.env.CLAUDE_CODE_LOG_ROOTS;
+  const box = await mkdtemp(path.join(os.tmpdir(), "ccl-rootlink-"));
+  try {
+    // An allowed root containing a symlink that escapes it. Lexically the link
+    // sits inside the boundary; really it points at the box's sibling. Before
+    // resolveRoot was symlink-aware this was accepted, and every file read on
+    // the route then inherited the escaped root's clearance.
+    const allowed = path.join(box, "allowed");
+    const outside = path.join(box, "outside");
+    await mkdir(allowed, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    const escape = path.join(allowed, "escape");
+    await symlink(outside, escape);
+
+    process.env.CLAUDE_CODE_LOG_ROOTS = allowed;
+    assert.equal(await resolveRoot(allowed), allowed, "the root itself still resolves");
+    assert.equal(await resolveRoot(escape), null, "a symlink out of the root is rejected");
   } finally {
     if (prev === undefined) delete process.env.CLAUDE_CODE_LOG_ROOTS;
     else process.env.CLAUDE_CODE_LOG_ROOTS = prev;

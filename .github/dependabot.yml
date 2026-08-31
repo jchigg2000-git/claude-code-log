@@ -1,0 +1,16 @@
+version: 2
+updates:
+  # The repo ships one runtime dependency and a small dev toolchain; weekly is
+  # enough to keep the CI audit gate from being the thing that discovers a CVE.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+
+  # Actions are pinned to commit SHAs in the workflows, which is only tenable
+  # with something proposing the bumps. This is that something.
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

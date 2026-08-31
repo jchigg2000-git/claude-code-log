@@ -27,8 +27,12 @@ function send(res: ServerResponse, status: number, body: unknown): void {
  * Every route takes its roots from the client, so this is the containment for
  * the whole surface — not just the two routes that take a file path.
  */
-function root(res: ServerResponse, url: URL, param: "logDir" | "repoRoot"): string | null {
-  const resolved = resolveRoot(url.searchParams.get(param) ?? "");
+async function root(
+  res: ServerResponse,
+  url: URL,
+  param: "logDir" | "repoRoot",
+): Promise<string | null> {
+  const resolved = await resolveRoot(url.searchParams.get(param) ?? "");
   if (!resolved) {
     send(res, 400, {
       error: `${param} must be a directory inside your home directory (or a path listed in CLAUDE_CODE_LOG_ROOTS)`,
@@ -49,11 +53,11 @@ function root(res: ServerResponse, url: URL, param: "logDir" | "repoRoot"): stri
  *
  * Callers read as `const r = optionalRoot(...); if (r === null) return true;`.
  */
-function optionalRoot(
+async function optionalRoot(
   res: ServerResponse,
   url: URL,
   param: "logDir" | "repoRoot",
-): string | undefined | null {
+): Promise<string | undefined | null> {
   const raw = url.searchParams.get(param);
   if (raw === null || !raw.trim()) return undefined;
   return root(res, url, param);
@@ -117,18 +121,18 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     }
 
     if (url.pathname === "/api/overview") {
-      const logDir = root(res, url, "logDir");
+      const logDir = await root(res, url, "logDir");
       if (logDir === null) return true;
-      const repoRoot = root(res, url, "repoRoot");
+      const repoRoot = await root(res, url, "repoRoot");
       if (repoRoot === null) return true;
       send(res, 200, await buildOverview(logDir, repoRoot));
       return true;
     }
 
     if (url.pathname === "/api/repo") {
-      const logDir = root(res, url, "logDir");
+      const logDir = await root(res, url, "logDir");
       if (logDir === null) return true;
-      const repoRoot = root(res, url, "repoRoot");
+      const repoRoot = await root(res, url, "repoRoot");
       if (repoRoot === null) return true;
       const rawPath = url.searchParams.get("path") ?? "";
       const name = url.searchParams.get("name") ?? rawPath;
@@ -142,16 +146,16 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     }
 
     if (url.pathname === "/api/metrics") {
-      const logDir = root(res, url, "logDir");
+      const logDir = await root(res, url, "logDir");
       if (logDir === null) return true;
-      const repoRoot = optionalRoot(res, url, "repoRoot");
+      const repoRoot = await optionalRoot(res, url, "repoRoot");
       if (repoRoot === null) return true;
       send(res, 200, await buildMetrics(logDir, repoRoot));
       return true;
     }
 
     if (url.pathname === "/api/journey") {
-      const logDir = root(res, url, "logDir");
+      const logDir = await root(res, url, "logDir");
       if (logDir === null) return true;
       const daysRaw = Number(url.searchParams.get("days"));
       const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(365, daysRaw) : 50;
@@ -160,9 +164,9 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     }
 
     if (url.pathname === "/api/search") {
-      const logDir = root(res, url, "logDir");
+      const logDir = await root(res, url, "logDir");
       if (logDir === null) return true;
-      const repoRoot = optionalRoot(res, url, "repoRoot");
+      const repoRoot = await optionalRoot(res, url, "repoRoot");
       if (repoRoot === null) return true;
       const query = url.searchParams.get("q") ?? "";
       send(res, 200, await buildSearch(logDir, query, repoRoot));
@@ -170,16 +174,16 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     }
 
     if (url.pathname === "/api/words") {
-      const logDir = root(res, url, "logDir");
+      const logDir = await root(res, url, "logDir");
       if (logDir === null) return true;
-      const repoRoot = optionalRoot(res, url, "repoRoot");
+      const repoRoot = await optionalRoot(res, url, "repoRoot");
       if (repoRoot === null) return true;
       send(res, 200, await buildWords(logDir, repoRoot));
       return true;
     }
 
     if (url.pathname === "/api/session") {
-      const logDir = root(res, url, "logDir");
+      const logDir = await root(res, url, "logDir");
       if (logDir === null) return true;
       const rawFile = url.searchParams.get("file") ?? "";
       const file = await safeResolveReal(logDir, rawFile);

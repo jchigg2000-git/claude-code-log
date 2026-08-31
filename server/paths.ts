@@ -96,13 +96,18 @@ export function allowedRoots(): string[] {
 /**
  * Expand and validate a caller-supplied root directory. Returns the resolved
  * absolute path, or null if it falls outside {@link allowedRoots} — callers
- * should answer 400 rather than reading it.
+ * should answer 400 rather than reading it. Symlink-aware: a root that resolves
+ * outside the boundary is rejected even when its literal path sits inside it.
  */
-export function resolveRoot(raw: string): string | null {
+export async function resolveRoot(raw: string): Promise<string | null> {
   if (!raw.trim()) return null;
   const resolved = expandHome(raw);
   for (const root of allowedRoots()) {
-    if (safeResolve(root, resolved)) return resolved;
+    // safeResolveReal, not safeResolve: a symlink sitting inside an allowed root
+    // but pointing outside it passes the lexical test, and every file read on the
+    // route then inherits that root's clearance. Containment has to hold for the
+    // root itself, not only for the paths resolved beneath it.
+    if (await safeResolveReal(root, resolved)) return resolved;
   }
   return null;
 }

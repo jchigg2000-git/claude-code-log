@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { ttlMemo } from "./memo.ts";
+import { allowedRoots, safeResolve } from "./paths.ts";
 
 /**
  * Reconstruct the project→project journey from `~/.claude/history.jsonl` — the
@@ -128,10 +129,16 @@ async function computeJourney(
   windowDays: number,
 ): Promise<{ value: Journey; healthy: boolean }> {
 
+  // `logDir` arrives validated, but its PARENT is not covered by that check —
+  // when logDir is itself an allowed root (e.g. $HOME), dirname() climbs out of
+  // it, and this read would inherit clearance it was never granted. Re-validate
+  // the derived path on its own merits.
   const historyPath = path.join(path.dirname(logDir), "history.jsonl");
+  const historyAllowed = allowedRoots().some((r) => safeResolve(r, historyPath));
   let raw = "";
   let historyFound = true;
   try {
+    if (!historyAllowed) throw new Error("history.jsonl resolves outside the allowed roots");
     raw = await readFile(historyPath, "utf8");
   } catch {
     // Not an error: plenty of machines have no history file. Report it as a
