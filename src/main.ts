@@ -11,15 +11,23 @@ import { openSettings } from "./views/settings.ts";
 import { invalidateMetrics, invalidateJourney, invalidateWords, invalidateRepo } from "./api.ts";
 import { sessionBackLink, sameRepoPage } from "./routes.ts";
 import { runViewTeardown } from "./viewLifecycle.ts";
+import { mountView, startRoute, isCurrentRoute } from "./mount.ts";
 
 const app = document.getElementById("app")!;
 const searchBox = document.getElementById("search-box") as HTMLInputElement;
 
-async function route(opts: { preserveScroll?: boolean } = {}): Promise<void> {
+async function route(opts: { preserveScroll?: boolean; refresh?: boolean } = {}): Promise<void> {
+  // Anything still awaiting from an earlier route is now stale (mount.ts).
+  const token = startRoute();
+  const refresh = opts.refresh === true;
+  const mount = (render: Parameters<typeof mountView>[3]) => mountView(app, token, refresh, render);
+
   // Dispose the outgoing view before the next one mounts. Only views that own
   // window-level listeners or animation loops register anything here; for the
-  // rest this is a no-op.
-  runViewTeardown();
+  // rest this is a no-op. A refresh re-renders the same view over itself and
+  // keeps the old page up until the new one is ready, so its teardown waits for
+  // the swap (mountView runs it).
+  if (!refresh) runViewTeardown();
 
   const hash = location.hash.replace(/^#/, "") || "/";
   const [pathPart, queryPart] = hash.split("?");
@@ -35,27 +43,30 @@ async function route(opts: { preserveScroll?: boolean } = {}): Promise<void> {
     // `session` is the open-transcript state: present ⇒ that session renders
     // inline on the repo page, absent ⇒ plain session list. Living in the
     // hash makes open/close real navigation (Back closes) and shareable.
-    await renderRepoDetail(app, repoPath, name, params.get("session") ?? "");
+    await renderRepoDetail(app, repoPath, name, params.get("session") ?? "", () => isCurrentRoute(token));
   } else if (pathPart === "/search") {
     const q = params.get("q") ?? "";
     if (document.activeElement !== searchBox) searchBox.value = q;
-    await renderSearch(app, q);
+    await mount((t, ctx) => renderSearch(t, q, ctx));
   } else if (pathPart === "/session") {
     const file = params.get("file") ?? "";
     const label = params.get("label") ?? "";
     const back = sessionBackLink(params.get("back"), params.get("q"));
-    await renderSession(app, file, label, back.href, back.label);
+    await mount((t, ctx) => renderSession(t, file, label, back.href, back.label, ctx));
   } else if (pathPart === "/profile") {
-    await renderProfile(app);
+    await mount(renderProfile);
   } else if (pathPart === "/viz") {
-    await renderDataViz(app);
+    await mount(renderDataViz);
   } else if (pathPart === "/journey") {
-    await renderJourney(app);
+    await mount(renderJourney);
   } else if (pathPart === "/words") {
-    await renderWords(app);
+    await mount(renderWords);
   } else {
-    await renderOverview(app);
+    await mount(renderOverview);
   }
+  // A newer route started while this one was fetching and owns the page, the
+  // search box and the scroll position now.
+  if (!isCurrentRoute(token)) return;
   // The box is a persistent top-bar control, so leaving the results page has to
   // clear it — otherwise it keeps advertising a query the page below no longer
   // reflects. Skipped while it has focus, so this never eats a keystroke.
@@ -108,7 +119,7 @@ async function refreshInPlace(): Promise<void> {
   invalidateWords();
   invalidateRepo();
   try {
-    await route({ preserveScroll: true });
+    await route({ preserveScroll: true, refresh: true });
   } finally {
     refreshing = false;
   }

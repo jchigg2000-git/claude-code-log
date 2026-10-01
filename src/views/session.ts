@@ -2,6 +2,7 @@ import { fetchSession } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear, errorBox } from "../dom.ts";
 import { appendTranscriptBody } from "./transcript.ts";
+import type { RenderCtx } from "../mount.ts";
 import type { Session } from "../types.ts";
 
 /**
@@ -18,6 +19,7 @@ export async function renderSession(
   label: string,
   backHref: string,
   backLabel: string,
+  ctx: RenderCtx,
 ): Promise<void> {
   clear(host);
   host.append(el("a", { class: "back", href: backHref }, backLabel));
@@ -27,6 +29,7 @@ export async function renderSession(
   try {
     sess = await fetchSession(loadConfig(), file);
   } catch (err) {
+    if (!ctx.isCurrent()) return;
     clear(host);
     host.append(
       el("a", { class: "back", href: backHref }, backLabel),
@@ -35,6 +38,7 @@ export async function renderSession(
     return;
   }
 
+  if (!ctx.isCurrent()) return;
   const events = sess.events;
   const id = file.replace(/\.jsonl$/, "").split("/").pop() ?? file;
   const countLabel = sess.truncated

@@ -157,7 +157,16 @@ export function releaseRepoDetail(): void {
   mounted = null;
 }
 
-export async function renderRepoDetail(host: HTMLElement, repoPath: string, name: string, sessionId = ""): Promise<void> {
+export async function renderRepoDetail(
+  host: HTMLElement,
+  repoPath: string,
+  name: string,
+  sessionId = "",
+  // From the router (mount.ts): lets a slow repo scan notice the reader has
+  // since gone elsewhere instead of rebuilding this page over theirs. Callers
+  // that re-render in place (a transcript toggle) have no newer route to lose to.
+  isCurrent: () => boolean = () => true,
+): Promise<void> {
   // Consume the one-shot intent before any await: if a click races the
   // periodic refresh, both renders run, and the click's — which started after
   // the intent was recorded — must be the one that claims it.
@@ -189,10 +198,12 @@ export async function renderRepoDetail(host: HTMLElement, repoPath: string, name
   try {
     data = await fetchRepo(loadConfig(), repoPath, name);
   } catch (err) {
+    if (!isCurrent()) return;
     clear(host);
     host.append(errorBox("Could not load repo. ", err, el("p", {}, el("a", { href: "#/" }, "← Back to overview"))));
     return;
   }
+  if (!isCurrent()) return;
 
   clear(host);
   host.append(

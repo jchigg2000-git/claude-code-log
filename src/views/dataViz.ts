@@ -3,6 +3,7 @@ import { loadConfig } from "../config.ts";
 import { el, clear, errorBox, statStrip } from "../dom.ts";
 import { areaChart, barList, logBars, compact, money } from "../charts.ts";
 import { fitChart } from "../fitChart.ts";
+import type { RenderCtx } from "../mount.ts";
 import { repoHash, sessionHash } from "../routes.ts";
 import type { Metrics, AgentSummary, MissionStat } from "../types.ts";
 
@@ -299,7 +300,7 @@ function agentSection(a: AgentSummary, workingHours: number, topMissions: Missio
   );
 }
 
-export async function renderDataViz(host: HTMLElement): Promise<void> {
+export async function renderDataViz(host: HTMLElement, ctx: RenderCtx): Promise<void> {
   clear(host);
   host.append(
     el("a", { class: "back", href: "#/" }, "← All repos"),
@@ -310,6 +311,7 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
   try {
     m = await fetchMetrics(loadConfig());
   } catch (err) {
+    if (!ctx.isCurrent()) return;
     clear(host);
     host.append(
       el("a", { class: "back", href: "#/" }, "← All repos"),
@@ -318,6 +320,7 @@ export async function renderDataViz(host: HTMLElement): Promise<void> {
     return;
   }
 
+  if (!ctx.isCurrent()) return;
   clear(host);
   const t = m.totals;
   // Round for DISPLAY only. Deciding on the rounded value made this page and

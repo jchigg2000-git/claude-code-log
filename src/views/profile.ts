@@ -2,6 +2,7 @@ import { fetchMetrics } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear, renderMarkdown, errorBox, statStrip } from "../dom.ts";
 import { compact, money } from "../charts.ts";
+import type { RenderCtx } from "../mount.ts";
 import type { Metrics } from "../types.ts";
 
 /**
@@ -261,7 +262,7 @@ page describes that corpus instead.`;
   return `${sections.join("\n\n")}\n\n${caveat}\n`;
 }
 
-export async function renderProfile(host: HTMLElement): Promise<void> {
+export async function renderProfile(host: HTMLElement, ctx: RenderCtx): Promise<void> {
   clear(host);
 
   host.append(
@@ -285,10 +286,12 @@ export async function renderProfile(host: HTMLElement): Promise<void> {
   try {
     m = await fetchMetrics(loadConfig());
   } catch (err) {
+    if (!ctx.isCurrent()) return;
     status.remove();
     host.append(errorBox("Could not read the corpus. ", err, "Check the log path in Settings (⚙)."));
     return;
   }
+  if (!ctx.isCurrent()) return;
   status.remove();
 
   // A corpus with no sessions is not an error — it is an empty log dir. Render

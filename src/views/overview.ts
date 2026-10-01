@@ -3,6 +3,7 @@ import { loadConfig } from "../config.ts";
 import { el, clear, relativeTime, errorBox, stat } from "../dom.ts";
 import { areaChart, compact, money } from "../charts.ts";
 import { fitChart } from "../fitChart.ts";
+import type { RenderCtx } from "../mount.ts";
 import { repoHash } from "../routes.ts";
 import type { RepoSummary, OrphanLog, Metrics } from "../types.ts";
 
@@ -74,12 +75,13 @@ function orphanRow(o: OrphanLog): HTMLElement {
   );
 }
 
-export async function renderOverview(host: HTMLElement): Promise<void> {
+export async function renderOverview(host: HTMLElement, ctx: RenderCtx): Promise<void> {
   clear(host);
   host.append(el("p", { class: "loading" }, "Scanning repos and Claude Code logs…"));
 
   try {
     const data = await fetchOverview(loadConfig());
+    if (!ctx.isCurrent()) return;
     clear(host);
 
     const active = data.repos.filter((r) => r.sessionCount > 0).length;
@@ -98,21 +100,32 @@ export async function renderOverview(host: HTMLElement): Promise<void> {
     );
 
     // Full-width hero strip directly under the subtext, linking to the Data
-    // Viz page. The corpus scan is heavy, so render a placeholder and fill it
-    // in once the (cached) metrics resolve — the repo grid never waits on it.
-    const hero = el(
-      "a",
-      { class: "hero", href: "#/viz", title: "Open the full Data Viz page" },
-      el("p", { class: "loading", style: "margin:6px 0 14px" }, "Summarizing the whole corpus…"),
-    );
+    // Viz page. The corpus scan is heavy, so a navigation renders a placeholder
+    // and fills it in once the (cached) metrics resolve — the repo grid never
+    // waits on it. A refresh is different: the old page (hero included) stays up
+    // while this one builds, so waiting here is invisible, and a placeholder
+    // would swap in shorter than the page it replaces and clamp the scroll.
+    const hero = el("a", { class: "hero", href: "#/viz", title: "Open the full Data Viz page" });
+    const metrics = fetchMetrics(loadConfig());
+    const early = ctx.refreshing ? await metrics.catch(() => null) : null;
+    if (!ctx.isCurrent()) return;
+    if (early) {
+      populateHero(hero, early);
+    } else {
+      hero.append(el("p", { class: "loading", style: "margin:6px 0 14px" }, "Summarizing the whole corpus…"));
+      // Guarded on the route, not on `hero.isConnected`: a refresh builds in a
+      // detached stage, and the metrics can land before it is swapped in.
+      // Filling a detached hero is harmless; skipping it would strand the
+      // placeholder on screen.
+      metrics
+        .then((m) => {
+          if (ctx.isCurrent()) populateHero(hero, m);
+        })
+        .catch(() => {
+          if (ctx.isCurrent()) hero.remove();
+        });
+    }
     host.append(hero);
-    fetchMetrics(loadConfig())
-      .then((m) => {
-        if (hero.isConnected) populateHero(hero, m);
-      })
-      .catch(() => {
-        if (hero.isConnected) hero.remove();
-      });
 
     if (data.repos.length === 0) {
       host.append(
@@ -134,6 +147,7 @@ export async function renderOverview(host: HTMLElement): Promise<void> {
       host.append(box);
     }
   } catch (err) {
+    if (!ctx.isCurrent()) return;
     clear(host);
     host.append(errorBox("Could not load data. ", err, "Check the paths in Settings (⚙)."));
   }

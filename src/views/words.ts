@@ -1,6 +1,7 @@
 import { fetchWords } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear, relativeTime, errorBox } from "../dom.ts";
+import type { RenderCtx } from "../mount.ts";
 import { sessionHash } from "../routes.ts";
 import type { WordCategory, WordEntry } from "../types.ts";
 
@@ -65,7 +66,7 @@ function entryCard(e: WordEntry): HTMLElement {
   return card;
 }
 
-export async function renderWords(host: HTMLElement): Promise<void> {
+export async function renderWords(host: HTMLElement, ctx: RenderCtx): Promise<void> {
   clear(host);
   host.append(
     el(
@@ -85,6 +86,7 @@ export async function renderWords(host: HTMLElement): Promise<void> {
 
   try {
     const data = await fetchWords(loadConfig());
+    if (!ctx.isCurrent()) return;
     status.remove();
 
     if (data.entries.length === 0) {
@@ -144,6 +146,7 @@ export async function renderWords(host: HTMLElement): Promise<void> {
     host.append(chips, list);
     renderList();
   } catch (err) {
+    if (!ctx.isCurrent()) return;
     status.remove();
     host.append(errorBox("Mining failed. ", err, "Check the log path in Settings (⚙)."));
   }

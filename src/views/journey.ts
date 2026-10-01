@@ -3,7 +3,8 @@ import { loadConfig } from "../config.ts";
 import { el, clear, relativeTime, errorBox } from "../dom.ts";
 import { forceGraph, sloppyTimeline, compact, money, type GraphPick } from "../charts.ts";
 import { fitChart } from "../fitChart.ts";
-import { setViewTeardown, runViewTeardown } from "../viewLifecycle.ts";
+import type { RenderCtx } from "../mount.ts";
+import { setViewTeardown } from "../viewLifecycle.ts";
 import { createJourneyField, type FleetBucket, type SceneId, type VisitSeed } from "./journey-canvas.ts";
 import type { Journey, JourneyEdge, JourneyNode, JourneyVisit, Metrics } from "../types.ts";
 
@@ -573,10 +574,11 @@ function wireScrollytelling(opts: {
 
 // ── The view ─────────────────────────────────────────────────────────────────
 
-export async function renderJourney(host: HTMLElement): Promise<void> {
-  // The router already tore down the outgoing view, but Journey re-rendering
-  // over itself (the periodic refresh) arrives here without a route change.
-  runViewTeardown();
+export async function renderJourney(host: HTMLElement, ctx: RenderCtx): Promise<void> {
+  // No teardown here: the router runs it for a navigation, and on a refresh the
+  // outgoing Journey must stay live until the new one is ready to replace it
+  // (mountView runs it at the swap). Tearing down first would leave the old
+  // page inert, and permanently so if the refetch fails and the old page stays.
   clear(host);
   host.append(el("p", { class: "loading" }, "Reconstructing the journey from day one…"));
 
@@ -586,6 +588,7 @@ export async function renderJourney(host: HTMLElement): Promise<void> {
     const cfg = loadConfig();
     [j, m] = await Promise.all([fetchJourney(cfg, WINDOW_DAYS), fetchMetrics(cfg)]);
   } catch (err) {
+    if (!ctx.isCurrent()) return;
     clear(host);
     host.append(
       el("a", { class: "back", href: "#/" }, "← All repos"),
@@ -593,6 +596,8 @@ export async function renderJourney(host: HTMLElement): Promise<void> {
     );
     return;
   }
+
+  if (!ctx.isCurrent()) return;
 
   // A missing/empty history file is NOT a fetch failure — the server reports it
   // as an empty journey — so it lands here, not in the catch above. Without this
@@ -643,5 +648,8 @@ export async function renderJourney(host: HTMLElement): Promise<void> {
   host.append(root);
 
   const { chapters, dotEls } = buildChapterDots(scenes, dots);
-  wireScrollytelling({ canvas, seeds, fleetForCanvas, scenes, explore, closer, railBar, chapters, dotEls });
+  // Measures layout and installs window listeners, so it needs the tree in the page.
+  ctx.afterAttach(() =>
+    wireScrollytelling({ canvas, seeds, fleetForCanvas, scenes, explore, closer, railBar, chapters, dotEls }),
+  );
 }

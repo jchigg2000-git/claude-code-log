@@ -2,6 +2,7 @@ import { fetchSearch } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear, relativeTime, errorBox } from "../dom.ts";
 import { sessionHash } from "../routes.ts";
+import type { RenderCtx } from "../mount.ts";
 import type { SearchMatch } from "../types.ts";
 
 const MIN_QUERY = 2;
@@ -47,7 +48,7 @@ function resultRow(m: SearchMatch, query: string): HTMLElement {
   );
 }
 
-export async function renderSearch(host: HTMLElement, query: string): Promise<void> {
+export async function renderSearch(host: HTMLElement, query: string, ctx: RenderCtx): Promise<void> {
   const q = query.trim();
   clear(host);
   host.append(
@@ -71,6 +72,9 @@ export async function renderSearch(host: HTMLElement, query: string): Promise<vo
 
   try {
     const data = await fetchSearch(loadConfig(), q);
+    // A slower search for an earlier keystroke must not append its results
+    // under the page a newer one already drew.
+    if (!ctx.isCurrent()) return;
     status.remove();
 
     if (data.results.length === 0) {
@@ -96,6 +100,7 @@ export async function renderSearch(host: HTMLElement, query: string): Promise<vo
     for (const m of data.results) list.append(resultRow(m, q));
     host.append(list);
   } catch (err) {
+    if (!ctx.isCurrent()) return;
     status.remove();
     host.append(errorBox("Search failed. ", err, "Check the log path in Settings (⚙)."));
   }

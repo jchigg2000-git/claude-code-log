@@ -107,7 +107,9 @@ Five tabs across the top, plus a per-repo drill-down:
 
 A long-lived tab re-scans the logs on a quiet **5-minute interval** (`src/main.ts`): it drops the cached metrics/journey scans and re-renders the current view, no manual reload. This is plain polling, not a push/filesystem-watch.
 
-The router asks for scroll to be preserved across that refresh, and the repo page manages it — it keeps the old render up while refetching. The analytics views do not: they clear their host and show a loading line first, so the document collapses and the browser clamps scroll to the top. On those pages a refresh will move you.
+Every view keeps its old render on screen while the refresh refetches. The new page is built off-screen and swapped in with a single DOM replacement (`src/mount.ts`), so the document never collapses to a loading line and scroll stays where it was; a refetch that fails leaves the old page up and the next tick retries. A navigation still shows the loading state, as you'd expect. The same seam stops a slow scan that lands after you've moved on from painting its page over the one you're on.
+
+What a swap does not carry over is state that lives only in the DOM: the Words filter chip goes back to *All*, a standalone transcript re-opens at its first slice, and Journey's particle field and counters restart (the repo page is the exception — it adopts its open transcript live). Scroll position survives all of them.
 
 ## API surface
 
