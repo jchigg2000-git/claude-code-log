@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, stat, utimes, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { buildWords } from "../server/words.ts";
+import { buildWords, clearWordsCache } from "../server/words.ts";
 
 const line = (o: unknown) => JSON.stringify(o);
 
@@ -133,4 +133,33 @@ test("a markerless corpus and an unreadable log dir both yield empty results", a
   const missing = await buildWords(path.join(os.tmpdir(), "ccl-words-does-not-exist"));
   assert.equal(missing.sessionsScanned, 0);
   assert.equal(missing.entries.length, 0);
+});
+
+test("an unchanged transcript is served from the per-file memo; a grown one is re-mined", async () => {
+  const lines = [
+    user("2026-08-01T10:00:00.000Z", "add auth to the login page please"),
+    assistant("2026-08-01T10:00:30.000Z", "Adding auth to every page in the app."),
+    user("2026-08-01T10:05:00.000Z", "that's not what I meant — only the API routes"),
+  ];
+  const logDir = await corpus({ [PROJ]: { "s1.jsonl": lines } });
+  const file = path.join(logDir, PROJ, "s1.jsonl");
+  const pinned = 1_780_000_000; // whole seconds, so restoring it is exact
+  await utimes(file, pinned, pinned);
+  assert.equal((await buildWords(logDir)).totalMatches, 1);
+
+  // Same size + mtime but different bytes: a memo hit must not re-read it.
+  const st = await stat(file);
+  const scrubbed = lines.join("\n").replace("that's not what I meant", "thats fine, carry on ok");
+  assert.equal(Buffer.byteLength(scrubbed), st.size);
+  await writeFile(file, scrubbed);
+  await utimes(file, pinned, pinned);
+  clearWordsCache(); // drop the corpus-level TTL memo, keep the per-file one
+  const hit = await buildWords(logDir);
+  assert.equal(hit.totalMatches, 1);
+  assert.equal(hit.entries[0].file, file); // session fields stamped at merge
+
+  // Appending changes size → the file is read and mined again.
+  await writeFile(file, scrubbed + "\n" + user("2026-08-01T10:06:00.000Z", "ok"));
+  clearWordsCache();
+  assert.equal((await buildWords(logDir)).totalMatches, 0);
 });

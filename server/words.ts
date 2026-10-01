@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { parseTranscriptText, type TimelineEvent } from "./jsonl.ts";
 import { enumerateSessions, type SearchSession } from "./search.ts";
 import { repoKeysFor } from "./fsScan.ts";
@@ -175,8 +176,19 @@ function matchMarker(flat: string): { marker: Marker; matched: string } | null {
   return null;
 }
 
-function mineSession(session: SearchSession, events: TimelineEvent[]): { entries: WordEntry[]; matches: number } {
-  const entries: WordEntry[] = [];
+/** The session-derived fields of a {@link WordEntry}, stamped at merge time. */
+type SessionFields = "file" | "sessionId" | "dirName" | "approxPath";
+
+/** A mined entry minus its session fields — a pure function of one file's text. */
+type MinedEntry = Omit<WordEntry, SessionFields>;
+
+interface FileMine {
+  entries: MinedEntry[];
+  matches: number;
+}
+
+function mineSession(events: TimelineEvent[]): FileMine {
+  const entries: MinedEntry[] = [];
   let matches = 0;
 
   let original: { text: string; ts: string | null } | null = null;
@@ -211,10 +223,6 @@ function mineSession(session: SearchSession, events: TimelineEvent[]): { entries
         // fixing their own words — a mis-said, whatever marker caught it.
         const selfCorrection = assistantTurns === 0;
         entries.push({
-          file: session.file,
-          sessionId: session.id,
-          dirName: session.dirName,
-          approxPath: session.approxPath,
           ts: ev.ts,
           category: selfCorrection ? "missaid" : hit.marker.category,
           confidence: hit.marker.confidence,
@@ -248,9 +256,41 @@ function mineSession(session: SearchSession, events: TimelineEvent[]): { entries
  */
 const memo = ttlMemo<WordsResults>(5 * 60 * 1000);
 
+/**
+ * Per-file mining memo, keyed by transcript path and validated by
+ * mtimeMs+size — sound because transcripts are append-only (the same
+ * invariant metrics' FileAgg memo relies on). Entries omit session-derived
+ * fields so one entry serves every `(logDir, repoRoot)` key; they are shared
+ * across rebuilds and must never be mutated. A prefilter miss is memoized too
+ * (as zero matches), so an unchanged corpus costs a stat per file, not a read.
+ */
+const fileMineCache = new Map<string, { mtimeMs: number; size: number; mine: FileMine }>();
+
+const NO_MATCHES: FileMine = { entries: [], matches: 0 };
+
 /** Drop the memo. Exposed for tooling/tests. */
 export function clearWordsCache(): void {
   memo.clear();
+}
+
+/** Drop the per-file mining memo. Exposed for tooling/tests. */
+export function clearWordsFileCache(): void {
+  fileMineCache.clear();
+}
+
+/** Mine one transcript, reusing the memo when the file is unchanged. Null = unreadable. */
+async function mineFile(session: SearchSession): Promise<FileMine | null> {
+  const hit = fileMineCache.get(session.file);
+  if (hit && hit.mtimeMs === session.mtimeMs && hit.size === session.size) return hit.mine;
+  let raw: string;
+  try {
+    raw = await readFile(session.file, "utf8");
+  } catch {
+    return null; // deleted mid-scan / unreadable — skip, and don't memoize
+  }
+  const mine = PREFILTER.test(raw) ? mineSession(parseTranscriptText(raw)) : NO_MATCHES;
+  fileMineCache.set(session.file, { mtimeMs: session.mtimeMs, size: session.size, mine });
+  return mine;
 }
 
 export function buildWords(logDir: string, repoRoot?: string): Promise<WordsResults> {
@@ -274,22 +314,26 @@ async function computeWords(
   let totalMatches = 0;
 
   for (const session of sessions) {
-    let raw: string;
-    try {
-      raw = await readFile(session.file, "utf8");
-    } catch {
-      continue; // deleted mid-scan / unreadable — skip
-    }
-    if (!PREFILTER.test(raw)) continue;
-
-    const mined = mineSession(session, parseTranscriptText(raw));
-    if (mined.matches === 0) continue;
+    const mined = await mineFile(session);
+    if (!mined || mined.matches === 0) continue;
     matchedSessions++;
     totalMatches += mined.matches;
     // One resolution per session — every entry mined from it shares a dirName.
-    const shown = repoKeys.length ? resolveProjectPath(session.dirName, repoKeys) : session.approxPath;
+    const approxPath = repoKeys.length ? resolveProjectPath(session.dirName, repoKeys) : session.approxPath;
     for (const e of mined.entries) {
-      if (entries.length < RESULT_CAP) entries.push(shown === e.approxPath ? e : { ...e, approxPath: shown });
+      if (entries.length >= RESULT_CAP) break;
+      // Fresh object per entry: the memoized one is shared and stays unstamped.
+      entries.push({ file: session.file, sessionId: session.id, dirName: session.dirName, approxPath, ...e });
+    }
+  }
+
+  // Drop memo entries for files that vanished from THIS logDir, so deletions
+  // don't leak memory across rebuilds. Other roots' entries are left alone.
+  if (sessions.length) {
+    const seen = new Set(sessions.map((s) => s.file));
+    const prefix = path.join(logDir, path.sep);
+    for (const key of fileMineCache.keys()) {
+      if (key.startsWith(prefix) && !seen.has(key)) fileMineCache.delete(key);
     }
   }
 

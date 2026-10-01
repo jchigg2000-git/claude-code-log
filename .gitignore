@@ -185,3 +185,6 @@ DECISIONS.md
 .vscode/
 .idea/
 *.swp
+
+# Generated build-record report (operator-local; regenerate on demand)
+build-record.html

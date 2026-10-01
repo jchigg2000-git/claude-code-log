@@ -42,6 +42,11 @@ export function refitAction(
   return first ? "render" : "debounce";
 }
 
+const nextFrame = (fn: () => void): void => {
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(fn);
+  else setTimeout(fn, 0);
+};
+
 interface FitOpts {
   floor?: number;
   debounceMs?: number;
@@ -87,8 +92,19 @@ export function fitChart(
     }
     const action = refitAction(host.clientWidth, renderedW, first, floor);
     first = false;
-    if (action === "render") refit();
-    else if (action === "debounce") {
+    if (action === "render") {
+      refit();
+      // Rendering inside the callback resizes the observed host, which the
+      // browser can't deliver this frame — it reports "ResizeObserver loop
+      // completed with undelivered notifications". Unobserving drops that
+      // pending notification; re-observing next frame resumes tracking (its
+      // initial delivery matches renderedW, so it is a no-op).
+      ro.unobserve(host);
+      nextFrame(() => {
+        if (host.isConnected) ro.observe(host);
+        else ro.disconnect();
+      });
+    } else if (action === "debounce") {
       clearTimeout(timer);
       timer = setTimeout(refit, wait);
     }
