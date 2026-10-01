@@ -12,7 +12,7 @@ function harness(opts: Partial<SliceOptions> & { total: number }) {
   const slices: [number, number][] = [];
   let pause: { remaining: number; resume: () => void } | null = null;
   let done = 0;
-  renderInSlices({
+  const handle = renderInSlices({
     sliceSize: 3,
     batchSize: 6,
     schedule: (fn) => queue.push(fn),
@@ -22,6 +22,7 @@ function harness(opts: Partial<SliceOptions> & { total: number }) {
     ...opts,
   });
   return {
+    extend: (total: number) => handle.extend(total),
     slices,
     pause: () => pause,
     doneCount: () => done,
@@ -94,4 +95,45 @@ test("alive() false abandons the loop without rendering or completing", () => {
   assert.deepEqual(h.slices, [[0, 3]], "no further slices after death");
   assert.equal(h.pause(), null);
   assert.equal(h.doneCount(), 0);
+});
+
+test("extend after the loop finished renders just the new tail, in slices", () => {
+  const h = harness({ total: 5 });
+  h.drain();
+  assert.equal(h.doneCount(), 1);
+  h.extend(8); // a live transcript gained 3 events
+  assert.equal(h.slices.length, 2, "extend only schedules");
+  h.drain();
+  assert.deepEqual(h.slices.slice(2), [[5, 8]], "rows already on screen are never re-rendered");
+  assert.equal(h.doneCount(), 2);
+});
+
+test("extend while parked behind the button refreshes the remaining count, and resume honours it", () => {
+  const h = harness({ total: 10 });
+  h.drain();
+  assert.equal(h.pause()!.remaining, 4);
+  h.extend(15);
+  assert.equal(h.pause()!.remaining, 9, "the button's label can state the true remainder");
+  h.pause()!.resume();
+  h.drain();
+  assert.deepEqual(h.slices.at(-1), [9, 12], "the next batch runs to its boundary against the larger total");
+  assert.equal(h.pause()!.remaining, 3);
+  h.pause()!.resume();
+  h.drain();
+  assert.deepEqual(h.slices.at(-1), [12, 15]);
+  assert.equal(h.doneCount(), 1);
+});
+
+test("extend mid-batch is picked up by the running loop; a smaller or equal total is ignored", () => {
+  const h = harness({ total: 4 });
+  h.tick(); // [0,3)
+  h.extend(5);
+  h.extend(2);
+  h.extend(5);
+  h.drain();
+  assert.deepEqual(h.slices, [
+    [0, 3],
+    [3, 5],
+  ]);
+  assert.equal(h.doneCount(), 1);
 });

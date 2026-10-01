@@ -50,46 +50,90 @@ export function truncationNotice(sess: Session): HTMLElement | null {
  * already-rendered DOM is never rebuilt on a filter change (words re-renders
  * its short list; a transcript holds thousands of rows). Hidden rows still
  * cost DOM nodes — the progressive renderer is what keeps that affordable.
- * Counts describe the fetched events, not just the rendered slice.
+ * Counts describe the fetched events, not just the rendered slice; `update`
+ * recounts when a live transcript gains events.
  */
-export function kindChips(events: TimelineEvent[], container: HTMLElement): HTMLElement {
-  let user = 0;
-  let tools = 0;
-  for (const ev of events) {
-    if (ev.kind === "user") user++;
-    else if (ev.kind === "tool_use" || ev.kind === "tool_result") tools++;
-  }
+export function kindChips(
+  events: TimelineEvent[],
+  container: HTMLElement,
+): { el: HTMLElement; update(events: TimelineEvent[]): void } {
+  const labels = (evs: TimelineEvent[]): Array<[string, string]> => {
+    let user = 0;
+    let tools = 0;
+    for (const ev of evs) {
+      if (ev.kind === "user") user++;
+      else if (ev.kind === "tool_use" || ev.kind === "tool_result") tools++;
+    }
+    return [
+      ["", `All (${evs.length})`],
+      ["filter-prompts", `Prompts only (${user})`],
+      ["filter-no-tools", `Hide tools (${evs.length - tools})`],
+    ];
+  };
 
   const FILTERS = ["filter-prompts", "filter-no-tools"];
   const chips = el("div", { class: "ev-chips" });
-  const chip = (filter: string, label: string) =>
-    el(
+  const buttons = new Map<string, HTMLElement>();
+  for (const [filter, label] of labels(events)) {
+    const btn = el(
       "button",
       {
         class: filter === "" ? "ev-chip active" : "ev-chip",
         "data-filter": filter,
         onclick: () => {
           for (const f of FILTERS) container.classList.toggle(f, f === filter);
-          for (const b of chips.querySelectorAll("button")) {
-            b.classList.toggle("active", b.dataset.filter === filter);
-          }
+          for (const [f, b] of buttons) b.classList.toggle("active", f === filter);
         },
       },
       label,
     );
-
-  chips.append(
-    chip("", `All (${events.length})`),
-    chip("filter-prompts", `Prompts only (${user})`),
-    chip("filter-no-tools", `Hide tools (${events.length - tools})`),
-  );
-  return chips;
+    buttons.set(filter, btn);
+    chips.append(btn);
+  }
+  return {
+    el: chips,
+    update(next) {
+      for (const [filter, label] of labels(next)) {
+        const btn = buttons.get(filter);
+        if (btn) btn.textContent = label;
+      }
+    },
+  };
 }
 
 /** Label for a "show more" pause with `remaining` rows unrendered. */
 export function moreLabel(remaining: number): string {
   const nextN = Math.min(BATCH_SIZE, remaining);
   return `Show ${nextN} more events${remaining > nextN ? ` (${remaining} not yet rendered)` : ""}`;
+}
+
+/** Handle on a filled transcript, for folding a re-fetched payload into it. */
+export interface TranscriptHandle {
+  /**
+   * `next` is a re-fetch of the same transcript after its file grew. When it
+   * extends what is on screen (see {@link extendsTranscript}) the new events
+   * are folded in at the tail — rows already rendered, the chosen filter and
+   * the reader's scroll are untouched — and this returns true. Otherwise
+   * nothing changes and it returns false: the caller must rebuild.
+   */
+  grow(next: Session): boolean;
+}
+
+type EventSummary = Pick<TimelineEvent, "kind" | "ts" | "text">;
+
+/**
+ * Whether `next` is `prev` plus events at the end. Transcripts are append-only,
+ * so the first and last events the reader already has must reappear unchanged
+ * at the same positions; anything else (a rewritten or replaced file, a shrink)
+ * is not an extension and has to be rebuilt. An empty `prev` never extends:
+ * what is on screen is a hint, not rows to append to.
+ */
+export function extendsTranscript(prev: { events: EventSummary[] }, next: { events: EventSummary[] }): boolean {
+  const a = prev.events;
+  const b = next.events;
+  if (a.length === 0 || b.length < a.length) return false;
+  const same = (i: number) => a[i].kind === b[i].kind && a[i].ts === b[i].ts && a[i].text === b[i].text;
+  return same(0) && same(a.length - 1);
 }
 
 /**
@@ -101,10 +145,12 @@ export function moreLabel(remaining: number): string {
  * (a hash change replaced the page), and a detached one reads as already gone.
  * Shared by the inline repo-page transcript and the standalone session view.
  */
-export function appendTranscriptBody(transcript: HTMLElement, sess: Session): void {
-  const notice = truncationNotice(sess);
+export function appendTranscriptBody(transcript: HTMLElement, sess: Session): TranscriptHandle {
+  let current = sess;
+  let notice = truncationNotice(sess);
   if (notice) transcript.append(notice);
-  transcript.append(kindChips(sess.events, transcript));
+  const chips = kindChips(sess.events, transcript);
+  transcript.append(chips.el);
 
   const rows = el("div", { class: "ev-rows" });
   const more = el("button", { class: "ev-more", hidden: true });
@@ -114,11 +160,11 @@ export function appendTranscriptBody(transcript: HTMLElement, sess: Session): vo
     resume?.();
   });
   transcript.append(rows, more);
-  renderInSlices({
+  const slices = renderInSlices({
     total: sess.events.length,
     alive: () => rows.isConnected,
     renderSlice: (start, end) => {
-      for (let i = start; i < end; i++) rows.append(eventRow(sess.events[i]));
+      for (let i = start; i < end; i++) rows.append(eventRow(current.events[i]));
     },
     onPause: (remaining, r) => {
       resume = r;
@@ -129,4 +175,24 @@ export function appendTranscriptBody(transcript: HTMLElement, sess: Session): vo
       more.hidden = true;
     },
   });
+
+  return {
+    grow(next) {
+      if (!extendsTranscript(current, next)) return false;
+      current = next;
+      const fresh = truncationNotice(next);
+      if (fresh) {
+        // The cap may only have been reached now — state it honestly either way.
+        if (notice) {
+          notice.textContent = fresh.textContent;
+        } else {
+          transcript.insertBefore(fresh, transcript.firstChild);
+          notice = fresh;
+        }
+      }
+      chips.update(next.events);
+      slices.extend(next.events.length);
+      return true;
+    },
+  };
 }

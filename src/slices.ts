@@ -35,21 +35,39 @@ export interface SliceOptions {
   schedule?: (fn: () => void) => void;
 }
 
-export function renderInSlices(opts: SliceOptions): void {
+export interface SliceHandle {
+  /**
+   * The list grew at the tail (a live transcript gained events): `total` is the
+   * new row count. Rows already rendered are never touched. A loop that had
+   * finished picks the new rows up; one parked behind the button has its
+   * remaining count refreshed; one mid-batch simply sees the larger total.
+   * Shrinking or equal totals are ignored.
+   */
+  extend(total: number): void;
+}
+
+export function renderInSlices(opts: SliceOptions): SliceHandle {
   const sliceSize = Math.max(1, opts.sliceSize ?? SLICE_SIZE);
   const batchSize = Math.max(sliceSize, opts.batchSize ?? BATCH_SIZE);
   const alive = opts.alive ?? (() => true);
   const schedule = opts.schedule ?? ((fn) => requestAnimationFrame(() => fn()));
 
+  let total = opts.total;
   let next = 0;
+  let state: "running" | "paused" | "done" = "running";
+  const resume = (): void => {
+    state = "running";
+    schedule(() => step(next + batchSize));
+  };
   const step = (batchEnd: number): void => {
     if (!alive()) return;
-    const end = Math.min(next + sliceSize, batchEnd, opts.total);
+    const end = Math.min(next + sliceSize, batchEnd, total);
     if (end > next) {
       opts.renderSlice(next, end);
       next = end;
     }
-    if (next >= opts.total) {
+    if (next >= total) {
+      state = "done";
       opts.onDone();
       return;
     }
@@ -57,8 +75,18 @@ export function renderInSlices(opts: SliceOptions): void {
       schedule(() => step(batchEnd));
       return;
     }
-    opts.onPause(opts.total - next, () => schedule(() => step(next + batchSize)));
+    state = "paused";
+    opts.onPause(total - next, resume);
   };
 
   schedule(() => step(batchSize));
+
+  return {
+    extend(grown) {
+      if (grown <= total) return;
+      total = grown;
+      if (state === "done") resume();
+      else if (state === "paused") opts.onPause(total - next, resume);
+    },
+  };
 }

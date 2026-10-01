@@ -3,7 +3,7 @@ import { loadConfig } from "../config.ts";
 import { el, clear, relativeTime, renderMarkdown, errorBox } from "../dom.ts";
 import { classifySessionRender, consumeSessionNav, recordSessionNav } from "../navIntent.ts";
 import { repoHash, sessionEntryAfterNav, sessionToggleNav } from "../routes.ts";
-import { appendTranscriptBody } from "./transcript.ts";
+import { appendTranscriptBody, type TranscriptHandle } from "./transcript.ts";
 import { carryDetailsState } from "../viewState.ts";
 import type { RepoDetail, SpecDoc, SessionMeta } from "../types.ts";
 
@@ -100,7 +100,8 @@ function sessionRow(s: SessionMeta, active: boolean, navigate: () => void): HTML
  * unchanged transcript replays the memoized payload and a grown file
  * refetches with no manual invalidation.
  */
-async function loadTranscript(transcript: HTMLElement, row: HTMLElement, s: SessionMeta, scroll: boolean): Promise<void> {
+async function loadTranscript(ref: MountedTranscript, row: HTMLElement, s: SessionMeta, scroll: boolean): Promise<void> {
+  const transcript = ref.el;
   transcript.append(el("p", { class: "loading" }, "Loading transcript…"));
   try {
     const sess = await fetchSession(loadConfig(), s.file, sessionStaleKey(s));
@@ -108,7 +109,7 @@ async function loadTranscript(transcript: HTMLElement, row: HTMLElement, s: Sess
     if (sess.events.length === 0) {
       transcript.append(el("p", { class: "hint" }, "No readable events in this transcript."));
     } else {
-      appendTranscriptBody(transcript, sess);
+      ref.handle = appendTranscriptBody(transcript, sess);
     }
   } catch (err) {
     clear(transcript);
@@ -120,12 +121,45 @@ async function loadTranscript(transcript: HTMLElement, row: HTMLElement, s: Sess
     // file never changes, so nothing else would ever invalidate it). Dropping
     // it makes the next render rebuild — and fetchSession evicts a rejected
     // promise, so that rebuild is a real refetch and the error self-heals.
-    if (mounted?.transcript?.el === transcript) mounted.transcript = null;
+    if (mounted?.transcript === ref) mounted.transcript = null;
   }
   // A hash change may have replaced the page while the fetch was in flight;
   // never scroll a detached row. (Rows fill in below on later frames — the
   // row's top edge doesn't depend on them.)
   if (scroll && row.isConnected) row.scrollIntoView({ block: "start" });
+}
+
+/**
+ * The open transcript's file grew since it was rendered. The reader's copy
+ * stays on screen — rebuilding would drop their filter and expanded rows and
+ * shorten the document under their scroll — and the new events are folded in at
+ * the tail once they arrive (transcript.ts `grow`). A file that was rewritten
+ * rather than appended to can't be folded, so that one is rebuilt in place.
+ *
+ * `ref.staleKey` moves to the new key only when the fold lands, so a failed
+ * fetch leaves the old key and the next refresh simply tries again; `ref.seq`
+ * makes the newest attempt win when two refreshes overlap.
+ */
+async function growTranscript(ref: MountedTranscript, s: SessionMeta, staleKey: string): Promise<void> {
+  const seq = ++ref.seq;
+  try {
+    const sess = await fetchSession(loadConfig(), s.file, staleKey);
+    if (seq !== ref.seq) return;
+    if (ref.handle?.grow(sess)) {
+      ref.staleKey = staleKey;
+      return;
+    }
+    clear(ref.el);
+    if (sess.events.length === 0) {
+      ref.handle = null;
+      ref.el.append(el("p", { class: "hint" }, "No readable events in this transcript."));
+    } else {
+      ref.handle = appendTranscriptBody(ref.el, sess);
+    }
+    ref.staleKey = staleKey;
+  } catch {
+    // Stale copy stays up; staleKey is still the old one, so the next render retries.
+  }
 }
 
 /**
@@ -139,6 +173,10 @@ interface MountedTranscript {
   id: string;
   staleKey: string;
   el: HTMLElement;
+  /** Set once the body is filled; what a grown file's new events are folded through. */
+  handle: TranscriptHandle | null;
+  /** Counts {@link growTranscript} attempts so only the newest applies. */
+  seq: number;
 }
 let mounted: {
   repoKey: string;
@@ -261,15 +299,20 @@ export async function renderRepoDetail(
           // adopted row is never scrolled to.)
           row.append(keep.el);
           transcriptRef = keep;
+        } else if (keep && keep.id === s.id && keep.handle) {
+          // Same session, file grown: still adopt the live element — the
+          // reader keeps their place, filter and expanded rows — and fold the
+          // new events into it as they arrive.
+          row.append(keep.el);
+          transcriptRef = keep;
+          void growTranscript(keep, s, staleKey);
         } else {
           // The transcript lives inside the active row, so it opens in place
           // — right under the session that was clicked, not below the list.
-          // A changed staleKey lands here too: the rebuild refetches and
-          // picks up the events the file gained.
           const transcript = el("div", { class: "transcript" });
           row.append(transcript);
-          transcriptRef = { id: s.id, staleKey, el: transcript };
-          void loadTranscript(transcript, row, s, scroll);
+          transcriptRef = { id: s.id, staleKey, el: transcript, handle: null, seq: 0 };
+          void loadTranscript(transcriptRef, row, s, scroll);
         }
       }
     }
