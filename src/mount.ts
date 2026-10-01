@@ -40,6 +40,13 @@ export interface RenderCtx {
    * it is rendering into a stage; dropped if the stage is discarded.
    */
   afterAttach(fn: () => void): void;
+  /**
+   * Refresh only: the page already on screen was built from exactly this data,
+   * so discard this render and leave that page untouched — nothing is swapped,
+   * so DOM-only state (an expanded transcript, a filter) survives. A no-op on a
+   * navigation, where there is no page to keep.
+   */
+  keepPage(): void;
 }
 
 let generation = 0;
@@ -87,15 +94,23 @@ export async function mountView(
   const isCurrent = () => isCurrentRoute(token);
 
   if (!refresh) {
-    await render(host, { refreshing: false, isCurrent, afterAttach: (fn) => fn() });
+    await render(host, { refreshing: false, isCurrent, afterAttach: (fn) => fn(), keepPage: () => {} });
     return;
   }
 
   const stage = document.createElement("div");
   const pending: Array<() => void> = [];
-  await render(stage, { refreshing: true, isCurrent, afterAttach: (fn) => void pending.push(fn) });
+  let kept = false;
+  await render(stage, {
+    refreshing: true,
+    isCurrent,
+    afterAttach: (fn) => void pending.push(fn),
+    keepPage: () => {
+      kept = true;
+    },
+  });
 
-  if (!isCurrent()) return;
+  if (kept || !isCurrent()) return;
   if (!isSettled(stage) && host.children.length > 0 && isSettled(host)) return;
   // The replaced page's window listeners / animation loops die with it — and
   // only now, so a refetch that fails (page kept) leaves the old one live.

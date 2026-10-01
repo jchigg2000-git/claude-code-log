@@ -109,7 +109,7 @@ A long-lived tab re-scans the logs on a quiet **5-minute interval** (`src/main.t
 
 Every view keeps its old render on screen while the refresh refetches. The new page is built off-screen and swapped in with a single DOM replacement (`src/mount.ts`), so the document never collapses to a loading line and scroll stays where it was; a refetch that fails leaves the old page up and the next tick retries. A navigation still shows the loading state, as you'd expect. The same seam stops a slow scan that lands after you've moved on from painting its page over the one you're on.
 
-What a swap does not carry over is state that lives only in the DOM: the Words filter chip goes back to *All*, a standalone transcript re-opens at its first slice, and Journey's particle field and counters restart (the repo page is the exception — it adopts its open transcript live). Scroll position survives all of them.
+What a swap does not carry over is state that lives only in the DOM: the Words filter chip goes back to *All*, and Journey's particle field and counters restart. Two views avoid the swap when nothing changed — the repo page adopts its open transcript live, and the standalone transcript view keeps its page (slices expanded, filter chosen) unless the file has grown. Scroll position survives all of them.
 
 ## API surface
 

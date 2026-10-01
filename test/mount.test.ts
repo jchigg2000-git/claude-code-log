@@ -158,3 +158,29 @@ test("isCurrent flips the moment a newer route starts", async () => {
   });
   assert.deepEqual(seen, [true, false]);
 });
+
+test("keepPage on a refresh discards the stage: nothing swaps, the old view isn't torn down, afterAttach never runs", async () => {
+  const host = new FakeEl("host");
+  host.append(new FakeEl("old"));
+  let tornDown = false;
+  setViewTeardown(() => (tornDown = true));
+  let attached = false;
+  await mountView(asHost(host), startRoute(), true, async (t, ctx) => {
+    asEl(t).append(new FakeEl("rebuilt"));
+    ctx.afterAttach(() => (attached = true));
+    ctx.keepPage();
+  });
+  assert.deepEqual(names(host), ["old"]);
+  assert.equal(tornDown, false);
+  assert.equal(attached, false);
+  runViewTeardown();
+});
+
+test("keepPage on a navigation is a no-op — there is no page to keep, the render proceeds", async () => {
+  const host = new FakeEl("host");
+  await mountView(asHost(host), startRoute(), false, async (t, ctx) => {
+    ctx.keepPage();
+    asEl(t).append(new FakeEl("page"));
+  });
+  assert.deepEqual(names(host), ["page"]);
+});
