@@ -3,6 +3,7 @@ import { loadConfig } from "../config.ts";
 import { el, clear, relativeTime, errorBox } from "../dom.ts";
 import type { RenderCtx } from "../mount.ts";
 import { sessionHash } from "../routes.ts";
+import { restoreChoice } from "../viewState.ts";
 import type { WordCategory, WordEntry } from "../types.ts";
 
 const CATEGORY_LABEL: Record<WordCategory, string> = {
@@ -12,6 +13,14 @@ const CATEGORY_LABEL: Record<WordCategory, string> = {
 };
 
 type Filter = WordCategory | "all";
+
+/**
+ * The category chip the reader last picked. The 5-minute refresh rebuilds the
+ * page, and a filter that snapped back to "all" under someone mid-read would
+ * also swap the list they were looking at. Only a refresh restores it; a
+ * navigation always opens on "all" (see restoreChoice).
+ */
+let lastFilter: Filter = "all";
 
 /** Wrap the first case-insensitive occurrence of `needle` in <mark>. */
 function markFirst(text: string, needle: string): HTMLElement {
@@ -111,7 +120,13 @@ export async function renderWords(host: HTMLElement, ctx: RenderCtx): Promise<vo
 
     const list = el("div", { class: "wm-list" });
     const chips = el("div", { class: "wm-chips" });
-    let active: Filter = "all";
+    let active: Filter = restoreChoice<Filter>(
+      lastFilter,
+      ctx.refreshing,
+      (f) => f === "all" || (counts.get(f) ?? 0) > 0,
+      "all",
+    );
+    lastFilter = active;
 
     const renderList = () => {
       clear(list);
@@ -131,6 +146,7 @@ export async function renderWords(host: HTMLElement, ctx: RenderCtx): Promise<vo
           "data-filter": filter,
           onclick: () => {
             active = filter;
+            lastFilter = filter;
             renderList();
           },
         },

@@ -4,6 +4,7 @@ import { el, clear, relativeTime, renderMarkdown, errorBox } from "../dom.ts";
 import { classifySessionRender, consumeSessionNav, recordSessionNav } from "../navIntent.ts";
 import { repoHash, sessionEntryAfterNav, sessionToggleNav } from "../routes.ts";
 import { appendTranscriptBody } from "./transcript.ts";
+import { carryDetailsState } from "../viewState.ts";
 import type { RepoDetail, SpecDoc, SessionMeta } from "../types.ts";
 
 function specBlock(s: SpecDoc): HTMLElement {
@@ -278,6 +279,10 @@ export async function renderRepoDetail(
   }
 
   cols.append(specCol, sessCol);
+  // A spec the reader opened (or closed) stays that way across the rebuild —
+  // both the periodic refresh and every transcript toggle land here, and a
+  // collapsing README would shorten the page under the reader.
+  if (prior) carryDetailsState(prior.root, cols);
   host.append(cols);
   mounted = { repoKey, root: cols, transcript: transcriptRef };
 }

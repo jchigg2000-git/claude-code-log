@@ -25,6 +25,22 @@ class FakeEl {
   append(...kids: FakeEl[]): void {
     this.children.push(...kids);
   }
+  /** Only <details> are ever asked for (viewState.carryDetailsState); found by walking children. */
+  open = false;
+  querySelector(): null {
+    return null;
+  }
+  querySelectorAll(): FakeEl[] {
+    const out: FakeEl[] = [];
+    const walk = (n: FakeEl) => {
+      for (const c of n.children) {
+        if (c.name === "details") out.push(c);
+        walk(c);
+      }
+    };
+    walk(this);
+    return out;
+  }
 }
 Object.assign(globalThis, { document: { createElement: () => new FakeEl("stage") } });
 
@@ -183,4 +199,16 @@ test("keepPage on a navigation is a no-op — there is no page to keep, the rend
     asEl(t).append(new FakeEl("page"));
   });
   assert.deepEqual(names(host), ["page"]);
+});
+
+test("a refresh swap carries the reader's open <details> onto the rebuilt page", async () => {
+  const host = new FakeEl("host");
+  const was = new FakeEl("details");
+  was.open = true; // the reader opened it
+  host.append(was);
+  await mountView(asHost(host), startRoute(), true, async (t) => {
+    asEl(t).append(new FakeEl("details")); // rebuilt at its default: closed
+  });
+  assert.equal(host.children.length, 1);
+  assert.equal(host.children[0].open, true);
 });

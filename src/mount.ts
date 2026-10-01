@@ -22,6 +22,7 @@
  */
 
 import { runViewTeardown } from "./viewLifecycle.ts";
+import { carryDetailsState } from "./viewState.ts";
 
 export interface RenderCtx {
   /**
@@ -115,6 +116,10 @@ export async function mountView(
   // The replaced page's window listeners / animation loops die with it — and
   // only now, so a refetch that fails (page kept) leaves the old one live.
   runViewTeardown();
+  // A rebuilt page starts every <details> at its default; the reader's
+  // open/closed choices ride across so the swap neither collapses what they
+  // were reading nor shortens the document under their scroll.
+  carryDetailsState(host, stage);
   host.replaceChildren(...Array.from(stage.childNodes));
   for (const fn of pending) fn();
 }
