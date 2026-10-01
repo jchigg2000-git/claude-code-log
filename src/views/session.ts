@@ -1,8 +1,7 @@
 import { fetchSession } from "../api.ts";
 import { loadConfig } from "../config.ts";
 import { el, clear, errorBox } from "../dom.ts";
-import { renderInSlices } from "../slices.ts";
-import { eventRow, kindChips, moreLabel, truncationNotice } from "./repoDetail.ts";
+import { appendTranscriptBody } from "./transcript.ts";
 import type { Session } from "../types.ts";
 
 /**
@@ -60,36 +59,6 @@ export async function renderSession(
     return;
   }
 
-  const notice = truncationNotice(sess);
-  if (notice) transcript.append(notice);
-  transcript.append(kindChips(events, transcript));
-
-  // Progressive body: rows land in slices (slices.ts) so a huge session never
-  // freezes the tab; the button between batches is the only way to continue —
-  // deliberately no IntersectionObserver.
-  const rows = el("div", { class: "ev-rows" });
-  const more = el("button", { class: "ev-more", hidden: true });
-  let resume: (() => void) | null = null;
-  more.addEventListener("click", () => {
-    more.hidden = true;
-    resume?.();
-  });
-  transcript.append(rows, more);
   host.append(transcript);
-
-  renderInSlices({
-    total: events.length,
-    alive: () => rows.isConnected, // stop appending into a container a hash change detached
-    renderSlice: (start, end) => {
-      for (let i = start; i < end; i++) rows.append(eventRow(events[i]));
-    },
-    onPause: (remaining, r) => {
-      resume = r;
-      more.textContent = moreLabel(remaining);
-      more.hidden = false;
-    },
-    onDone: () => {
-      more.hidden = true;
-    },
-  });
+  appendTranscriptBody(transcript, sess);
 }

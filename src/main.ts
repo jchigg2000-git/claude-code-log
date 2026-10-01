@@ -1,6 +1,6 @@
 import "./style.css";
 import { renderOverview } from "./views/overview.ts";
-import { renderRepoDetail, noteHashNav } from "./views/repoDetail.ts";
+import { renderRepoDetail, noteHashNav, releaseRepoDetail } from "./views/repoDetail.ts";
 import { renderProfile } from "./views/profile.ts";
 import { renderDataViz } from "./views/dataViz.ts";
 import { renderJourney } from "./views/journey.ts";
@@ -24,6 +24,10 @@ async function route(opts: { preserveScroll?: boolean } = {}): Promise<void> {
   const hash = location.hash.replace(/^#/, "") || "/";
   const [pathPart, queryPart] = hash.split("?");
   const params = new URLSearchParams(queryPart ?? "");
+
+  // Only a repo → repo route may adopt the previous repo page's DOM; any other
+  // destination releases it so the detached tree can be collected.
+  if (pathPart !== "/repo") releaseRepoDetail();
 
   if (pathPart === "/repo") {
     const repoPath = params.get("path") ?? "";
