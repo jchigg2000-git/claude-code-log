@@ -124,7 +124,7 @@ Every route is read-only, JSON, and served under `/api/` by `server/api.ts`:
 - `GET /api/search?logDir&q[&repoRoot]` — full-text search across every transcript, newest-first, capped at 100 results
 - `GET /api/words?logDir[&repoRoot]` — correction mining for the Words tab, newest-first, capped at 200 entries
 
-`/api/metrics`, `/api/journey` and `/api/words` memoize their whole-corpus result for 5 minutes; adding `&fresh=1` drops that memo and re-scans (per-file results stay cached on mtime+size, so it is still cheap). The periodic refresh sends it.
+`/api/metrics`, `/api/journey` and `/api/words` memoize their whole-corpus result for 5 minutes (overlapping requests share one running scan rather than starting parallel ones); adding `&fresh=1` drops that memo and re-scans (per-file results stay cached on mtime+size, so it is still cheap). The periodic refresh sends it.
 
 `logDir` and `repoRoot` are validated on every route that takes them; see [Security posture](#security-posture).
 
