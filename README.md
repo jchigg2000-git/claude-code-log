@@ -105,7 +105,7 @@ Five tabs across the top, plus a per-repo drill-down:
 
 ## Live refresh
 
-A long-lived tab re-scans the logs on a quiet **5-minute interval** (`src/main.ts`): it drops the cached metrics/journey scans and re-renders the current view, no manual reload. This is plain polling, not a push/filesystem-watch.
+A long-lived tab re-scans the logs on a quiet **5-minute interval** (`src/main.ts`): it drops the cached metrics/journey/words scans, asks the server to skip its own 5-minute memo of them (`fresh=1`, below — the interval and the memo are the same length, so without it every other refresh would replay the previous scan), and re-renders the current view, no manual reload. This is plain polling, not a push/filesystem-watch.
 
 Every view keeps its old render on screen while the refresh refetches. The new page is built off-screen and swapped in with a single DOM replacement (`src/mount.ts`), so the document never collapses to a loading line and scroll stays where it was; a refetch that fails leaves the old page up and the next tick retries. A navigation still shows the loading state, as you'd expect. The same seam stops a slow scan that lands after you've moved on from painting its page over the one you're on.
 
@@ -123,6 +123,8 @@ Every route is read-only, JSON, and served under `/api/` by `server/api.ts`:
 - `GET /api/journey?logDir[&days]` — the project graph + visit timeline (Journey). `days` is optional, defaults to 50, and is capped at 365
 - `GET /api/search?logDir&q[&repoRoot]` — full-text search across every transcript, newest-first, capped at 100 results
 - `GET /api/words?logDir[&repoRoot]` — correction mining for the Words tab, newest-first, capped at 200 entries
+
+`/api/metrics`, `/api/journey` and `/api/words` memoize their whole-corpus result for 5 minutes; adding `&fresh=1` drops that memo and re-scans (per-file results stay cached on mtime+size, so it is still cheap). The periodic refresh sends it.
 
 `logDir` and `repoRoot` are validated on every route that takes them; see [Security posture](#security-posture).
 

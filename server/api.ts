@@ -1,9 +1,9 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { buildOverview, buildRepoDetail } from "./fsScan.ts";
-import { buildMetrics } from "./metrics.ts";
-import { buildJourney } from "./journey.ts";
+import { buildMetrics, clearMetricsCache } from "./metrics.ts";
+import { buildJourney, clearJourneyCache } from "./journey.ts";
 import { buildSearch } from "./search.ts";
-import { buildWords } from "./words.ts";
+import { buildWords, clearWordsCache } from "./words.ts";
 import { readTranscriptCapped, TRANSCRIPT_EVENT_CAP } from "./jsonl.ts";
 import { resolveRoot, safeResolveReal } from "./paths.ts";
 
@@ -114,6 +114,13 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
     return true;
   }
 
+  // `fresh=1` is the client's periodic refresh asking for a re-scan rather than
+  // the 5-minute whole-corpus memo (metrics / journey / words). The refresh
+  // interval equals the memo TTL, so without this the refetch lands just inside
+  // the window and gets the previous scan back. Only the TTL memo is dropped;
+  // per-file memos are keyed on mtime+size, so the re-scan itself stays cheap.
+  const fresh = url.searchParams.get("fresh") === "1";
+
   try {
     if (url.pathname === "/api/health") {
       send(res, 200, { ok: true });
@@ -150,6 +157,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
       if (logDir === null) return true;
       const repoRoot = await optionalRoot(res, url, "repoRoot");
       if (repoRoot === null) return true;
+      if (fresh) clearMetricsCache();
       send(res, 200, await buildMetrics(logDir, repoRoot));
       return true;
     }
@@ -159,6 +167,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
       if (logDir === null) return true;
       const daysRaw = Number(url.searchParams.get("days"));
       const days = Number.isFinite(daysRaw) && daysRaw > 0 ? Math.min(365, daysRaw) : 50;
+      if (fresh) clearJourneyCache();
       send(res, 200, await buildJourney(logDir, days));
       return true;
     }
@@ -178,6 +187,7 @@ export async function handleApi(req: IncomingMessage, res: ServerResponse): Prom
       if (logDir === null) return true;
       const repoRoot = await optionalRoot(res, url, "repoRoot");
       if (repoRoot === null) return true;
+      if (fresh) clearWordsCache();
       send(res, 200, await buildWords(logDir, repoRoot));
       return true;
     }

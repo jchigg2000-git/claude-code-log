@@ -91,17 +91,25 @@ export function fetchSearch(cfg: AppConfig, query: string): Promise<SearchResult
  * (guarded so a newer in-flight fetch isn't clobbered) — a transient failure
  * cached here would otherwise be replayed on every re-navigation, since
  * callers show an error but never invalidate.
+ *
+ * `invalidate()` is the periodic refresh's lever, and it also marks the NEXT
+ * request `fresh=1`. Dropping only this memo is not enough: the server keeps a
+ * 5-minute memo of its own, and the refresh fires on a 5-minute timer, so
+ * without the flag the refetch landed inside that window and got the old scan
+ * back — a refresh that re-rendered identical data every other tick.
  */
 function cachedEndpoint<A extends unknown[], T>(
   keyOf: (...args: A) => string,
-  fetchOf: (...args: A) => Promise<T>,
+  urlOf: (...args: A) => string,
 ): { fetch: (...args: A) => Promise<T>; invalidate: () => void } {
   let cache: { key: string; promise: Promise<T> } | null = null;
+  let bust = false;
   return {
     fetch(...args: A): Promise<T> {
       const key = keyOf(...args);
       if (!cache || cache.key !== key) {
-        const promise = fetchOf(...args);
+        const promise = getJSON<T>(freshUrl(urlOf(...args), bust));
+        bust = false;
         promise.catch(() => {
           if (cache?.promise === promise) cache = null;
         });
@@ -111,30 +119,37 @@ function cachedEndpoint<A extends unknown[], T>(
     },
     invalidate(): void {
       cache = null;
+      bust = true;
     },
   };
+}
+
+/** `url` with the server-memo bypass appended when `bust` is set. */
+export function freshUrl(url: string, bust: boolean): string {
+  if (!bust) return url;
+  return url + (url.includes("?") ? "&" : "?") + "fresh=1";
 }
 
 // repoRoot is part of the metrics/words keys because it decides how projects
 // are NAMED — the same corpus under a different root yields the same numbers
 // with different labels, and a logDir-only key would serve the stale ones.
-const metrics = cachedEndpoint(
+const metrics = cachedEndpoint<[AppConfig], Metrics>(
   (cfg: AppConfig) => `${cfg.logDir}::${cfg.repoRoot}`,
-  (cfg) => getJSON<Metrics>(`/api/metrics?${q({ logDir: cfg.logDir, repoRoot: cfg.repoRoot })}`),
+  (cfg) => `/api/metrics?${q({ logDir: cfg.logDir, repoRoot: cfg.repoRoot })}`,
 );
 export const fetchMetrics = metrics.fetch;
 export const invalidateMetrics = metrics.invalidate;
 
-const journey = cachedEndpoint(
+const journey = cachedEndpoint<[AppConfig, number?], Journey>(
   (cfg: AppConfig, days = 50) => `${cfg.logDir}::${days}`,
-  (cfg, days = 50) => getJSON<Journey>(`/api/journey?${q({ logDir: cfg.logDir, days: String(days) })}`),
+  (cfg, days = 50) => `/api/journey?${q({ logDir: cfg.logDir, days: String(days) })}`,
 );
 export const fetchJourney = journey.fetch;
 export const invalidateJourney = journey.invalidate;
 
-const words = cachedEndpoint(
+const words = cachedEndpoint<[AppConfig], WordsResults>(
   (cfg: AppConfig) => `${cfg.logDir}::${cfg.repoRoot}`,
-  (cfg) => getJSON<WordsResults>(`/api/words?${q({ logDir: cfg.logDir, repoRoot: cfg.repoRoot })}`),
+  (cfg) => `/api/words?${q({ logDir: cfg.logDir, repoRoot: cfg.repoRoot })}`,
 );
 export const fetchWords = words.fetch;
 export const invalidateWords = words.invalidate;

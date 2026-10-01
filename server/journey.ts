@@ -115,6 +115,11 @@ function clean(s: string): string {
 
 const memo = ttlMemo<Journey>(5 * 60 * 1000);
 
+/** Drop the TTL memo. Exposed for the `fresh=1` refresh path and tests (clearMetricsCache's idiom). */
+export function clearJourneyCache(): void {
+  memo.clear();
+}
+
 /**
  * Build the journey for the last `windowDays`. `logDir` is the resolved
  * Claude projects dir (e.g. ~/.claude/projects); history sits next to it.
