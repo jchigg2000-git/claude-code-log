@@ -18,12 +18,12 @@ import { fileURLToPath } from "node:url";
  * exception.
  */
 
-export type ModelFamily = "fable" | "opus" | "opus-legacy" | "sonnet" | "haiku";
+export type ModelFamily = "fable" | "fable-5-2" | "opus" | "opus-legacy" | "sonnet" | "haiku";
 /** USD per 1M tokens: [input, output, cacheWrite, cacheRead]. */
 export type RateTuple = [number, number, number, number];
 export type PricingTable = Record<ModelFamily, RateTuple>;
 
-export const PRICING_FAMILIES = ["fable", "opus", "opus-legacy", "sonnet", "haiku"] as const;
+export const PRICING_FAMILIES = ["fable", "fable-5-2", "opus", "opus-legacy", "sonnet", "haiku"] as const;
 
 /**
  * Built-in public list pricing, USD per 1M tokens: [input, output, cacheWrite, cacheRead].
@@ -33,11 +33,13 @@ export const PRICING_FAMILIES = ["fable", "opus", "opus-legacy", "sonnet", "haik
  * `opus` covers Opus 4.5 and later (incl. Opus 5) at $5/$25; `opus-legacy`
  * keeps the pre-4.5 rate ($15/$75 — Opus 4.0/4.1, Claude 3 Opus) so old
  * transcripts still price at what those models actually cost. `fable` covers
- * Fable 5 and Mythos 5 ($10/$50). Sonnet 5 list rate is $3/$15 (the 2026
+ * Fable 5 and Mythos 5 ($10/$50); `fable-5-2` is a model-specific match for
+ * Fable 5.2 ($8/$40, $0.20 cache reads — priced below its family). Sonnet 5 list rate is $3/$15 (the 2026
  * introductory $2/$10 is ignored — this app prices at list).
  */
 export const DEFAULT_PRICING: PricingTable = {
   fable: [10, 50, 12.5, 1],
+  "fable-5-2": [8, 40, 10, 0.2],
   opus: [5, 25, 6.25, 0.5],
   "opus-legacy": [15, 75, 18.75, 1.5],
   sonnet: [3, 15, 3.75, 0.3],
@@ -45,14 +47,18 @@ export const DEFAULT_PRICING: PricingTable = {
 };
 
 /** The date {@link DEFAULT_PRICING} reflects. MUST be bumped whenever that table is edited. */
-export const PRICING_EFFECTIVE = "2026-08-11";
+export const PRICING_EFFECTIVE = "2026-11-16";
 
 /** Model ids on the modern ($5/$25) opus rate: Opus 4.5–4.8 and Opus 5+. */
 const MODERN_OPUS = /opus-(4-[5-9]|[5-9])/;
 
+/** Fable 5.2 ids (`claude-fable-5-2`, dated or suffixed), which price below the rest of the fable family. */
+const FABLE_5_2 = /fable-5-2(?![0-9])/;
+
 /** Classify a model id string into a pricing family, or null if unrecognized. */
 export function family(model: unknown): ModelFamily | null {
   const m = typeof model === "string" ? model.toLowerCase() : "";
+  if (FABLE_5_2.test(m)) return "fable-5-2";
   if (m.includes("fable") || m.includes("mythos")) return "fable";
   if (m.includes("opus")) return MODERN_OPUS.test(m) ? "opus" : "opus-legacy";
   if (m.includes("sonnet")) return "sonnet";
