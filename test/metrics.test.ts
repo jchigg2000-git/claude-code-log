@@ -55,6 +55,34 @@ test("cost is per-model list pricing across all four token buckets", async () =>
   assert.equal(m.pricing.source, "built-in");
 });
 
+test("Fable 5.2 prices at its own $8/$40 rate, not the fable family's", async () => {
+  const logDir = await corpus({
+    [PROJ]: {
+      "s1.jsonl": [
+        line({
+          type: "assistant",
+          timestamp: "2026-11-16T10:00:00.000Z",
+          message: {
+            role: "assistant",
+            model: "claude-fable-5-2",
+            usage: {
+              input_tokens: 1_000_000,
+              output_tokens: 100_000,
+              cache_creation_input_tokens: 200_000,
+              cache_read_input_tokens: 10_000_000,
+            },
+            content: [{ type: "text", text: "x" }],
+          },
+        }),
+      ],
+    },
+  });
+
+  const m = await buildMetrics(logDir);
+  // 1M*8 + 100k*40 + 200k*10 + 10M*0.2, all per 1M tokens.
+  assert.equal(m.totals.cost, 16);
+});
+
 test("an unrecognized model contributes tokens but no cost", async () => {
   const logDir = await corpus({
     [PROJ]: {
@@ -86,6 +114,10 @@ test("family() classifies model ids and rejects unknowns", () => {
   assert.equal(family("claude-3-opus-20240229"), "opus-legacy");
   assert.equal(family("claude-fable-5"), "fable");
   assert.equal(family("claude-mythos-5"), "fable");
+  assert.equal(family("claude-fable-5-2"), "fable-5-2", "Fable 5.2 has its own $8/$40 rate");
+  assert.equal(family("claude-fable-5-2-20261101"), "fable-5-2");
+  assert.equal(family("claude-fable-5-1"), "fable");
+  assert.equal(family("claude-fable-5-20"), "fable", "a longer minor number is not 5.2");
   assert.equal(family("claude-sonnet-5"), "sonnet");
   assert.equal(family("claude-haiku-4-5-20251001"), "haiku");
   assert.equal(family("CLAUDE-OPUS-5"), "opus");
@@ -94,6 +126,7 @@ test("family() classifies model ids and rejects unknowns", () => {
   assert.equal(family(42), null);
   assert.deepEqual(DEFAULT_PRICING.opus, [5, 25, 6.25, 0.5]);
   assert.deepEqual(DEFAULT_PRICING.fable, [10, 50, 12.5, 1]);
+  assert.deepEqual(DEFAULT_PRICING["fable-5-2"], [8, 40, 10, 0.2]);
 });
 
 test("subagent dispatches pair to their tool_result by tool_use_id", async () => {
