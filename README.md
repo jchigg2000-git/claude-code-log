@@ -156,7 +156,7 @@ Spend is estimated from per-message token usage priced at public list rates. Tho
 - a `pricing.json` at the repo root (gitignored, it's operator-local), or
 - `CLAUDE_CODE_LOG_PRICING=/path/to/rates.json`.
 
-Copy `pricing.example.json` to start. Rates are keyed by model family — `fable` (Fable/Mythos 5), `opus` (Opus 4.5+ and Opus 5), `opus-legacy` (pre-4.5 Opus, so old transcripts still price at what those models actually cost), `sonnet`, `haiku`. Every field is optional, so a file that only sets `opus` overrides only opus; a malformed or unreadable file falls back to the built-in table rather than failing. The table is read once per process, so editing it needs a server restart. The Data Viz caption names which source and effective date produced the numbers you're looking at, so a stale table is visible rather than silent.
+Copy `pricing.example.json` to start. Rates are keyed by model family — `fable` (Fable/Mythos 5), `fable-5-2` (Fable 5.2, which prices below its family), `opus` (Opus 4.5+ and Opus 5), `opus-legacy` (pre-4.5 Opus, so old transcripts still price at what those models actually cost), `sonnet`, `haiku`. Every field is optional, so a file that only sets `opus` overrides only opus; a malformed or unreadable file falls back to the built-in table rather than failing. The table is read once per process, so editing it needs a server restart. The Data Viz caption names which source and effective date produced the numbers you're looking at, so a stale table is visible rather than silent.
 
 ## Security posture
 
